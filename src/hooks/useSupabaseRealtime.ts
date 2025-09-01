@@ -23,6 +23,31 @@ export function useSupabaseRealtime() {
   const { currentUser, addOtherUser, removeOtherUser, updateOtherUser } = useUserStore()
   const channelRef = useRef<RealtimeChannel | null>(null)
 
+  const loadInitialUsers = async () => {
+    if (!currentUser) return
+    try {
+      const usersData = await getUsersInArea()
+      console.log('Utilizatori încărcați:', usersData)
+
+      usersData.forEach((userData: RecordType) => {
+        if (userData.user_id !== currentUser.id) {
+          addOtherUser({
+            id: userData.user_id,
+            color: userData.color_hash || generateStarColor(),
+            position: {
+              lat: userData.lat,
+              lng: userData.lng
+            }
+          })
+        }
+      })
+
+      console.log(`📍 S-au încărcat ${usersData.length} utilizatori din apropiere`)
+    } catch (error) {
+      console.error('Nu s-au putut încărca utilizatorii inițiali:', error)
+    }
+  }
+
   const startRealtime = () => {
     if (!currentUser || channelRef.current) return
 
@@ -36,9 +61,10 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload: TypedPayload) => {
-          console.log('Payload primit:', payload)
+          console.log('📡 Payload primit:', payload)
           const { eventType, new: newRecord, old: oldRecord } = payload
 
+          // Ignoră evenimentele de la userul curent
           if (
             (newRecord?.user_id && newRecord.user_id === currentUser.id) ||
             (oldRecord?.user_id && oldRecord.user_id === currentUser.id)
@@ -52,13 +78,7 @@ export function useSupabaseRealtime() {
             (eventType === 'INSERT' || eventType === 'UPDATE') &&
             newRecord?.user_id
           ) {
-            const { data: userData } = await supabase
-              .from('users')
-              .select('color_hash')
-              .eq('id', newRecord.user_id)
-              .single()
-
-            const userColor = userData?.color_hash || generateStarColor()
+            const userColor = newRecord.color_hash || generateStarColor()
 
             if (eventType === 'INSERT') {
               addOtherUser({
@@ -78,47 +98,25 @@ export function useSupabaseRealtime() {
           }
         }
       )
-      .subscribe((status, err) => {
+      .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log('✅ Realtime connected')
           toast.success('🔗 Conectat la rețeaua de constelații')
           loadInitialUsers()
-        } else if (err) {
-          console.error('❌ Realtime error:', err)
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Realtime channel error')
           toast.error('Conexiune Realtime eșuată')
+        } else if (status === 'CLOSED') {
+          console.warn('⚠️ Realtime channel closed')
         }
       })
 
     channelRef.current = channel
   }
 
-  const loadInitialUsers = async () => {
-    if (!currentUser) return
-    try {
-      const usersData = await getUsersInArea()
-      console.log('Utilizatori încărcați:', usersData)
-      usersData.forEach((userData: RecordType) => {
-        if (userData.user_id !== currentUser.id) {
-          addOtherUser({
-            id: userData.user_id,
-            color: userData.color_hash || generateStarColor(),
-            position: {
-              lat: userData.lat,
-              lng: userData.lng
-            }
-          })
-        }
-      })
-      console.log(`📍 S-au încărcat ${usersData.length} utilizatori din apropiere`)
-    } catch (error) {
-      console.error('Nu s-au putut încărca utilizatorii inițiali:', error)
-    }
-  }
-
   const stopRealtime = async () => {
     if (channelRef.current) {
       await channelRef.current.unsubscribe()
-      await supabase.removeChannel(channelRef.current)
       channelRef.current = null
     }
   }
@@ -131,14 +129,20 @@ export function useSupabaseRealtime() {
 
   useEffect(() => {
     if (!currentUser) return
+
     const cleanup = async () => {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-      await supabase
-        .from('active_positions')
-        .delete()
-        .lt('updated_at', fiveMinutesAgo)
+      try {
+        await supabase
+          .from('active_positions')
+          .delete()
+          .lt('updated_at', fiveMinutesAgo)
+      } catch (err) {
+        console.error('Eroare la cleanup:', err)
+      }
     }
-    const interval = setInterval(cleanup, 60000)
+
+    const interval = setInterval(cleanup, 60_000)
     return () => clearInterval(interval)
   }, [currentUser])
 
