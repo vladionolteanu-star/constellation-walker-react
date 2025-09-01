@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase, getUsersInArea } from '../services/supabase'
 import { useUserStore } from '../store/userStore'
 import { generateStarColor } from '../utils/constants'
@@ -13,6 +13,13 @@ type RecordType = {
     color_hash?: string
   }
   [key: string]: any
+}
+
+// suprascriem payload-ul de la Supabase cu ce avem noi nevoie
+type TypedPayload = {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  new: RecordType | null
+  old: RecordType | null
 }
 
 export function useSupabaseRealtime() {
@@ -31,9 +38,10 @@ export function useSupabaseRealtime() {
           schema: 'public',
           table: 'active_positions'
         },
-        async (payload: RealtimePostgresChangesPayload<RecordType>) => {
-          const newRecord = payload.new as RecordType | undefined
-          const oldRecord = payload.old as RecordType | undefined
+        async (payload: any) => {
+          const { eventType, new: newRow, old: oldRow } = payload as TypedPayload
+          const newRecord = newRow ?? undefined
+          const oldRecord = oldRow ?? undefined
 
           if (
             (newRecord?.user_id && newRecord.user_id === currentUser.id) ||
@@ -42,10 +50,10 @@ export function useSupabaseRealtime() {
             return
           }
 
-          if (payload.eventType === 'DELETE' && oldRecord?.user_id) {
+          if (eventType === 'DELETE' && oldRecord?.user_id) {
             removeOtherUser(oldRecord.user_id)
           } else if (
-            (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') &&
+            (eventType === 'INSERT' || eventType === 'UPDATE') &&
             newRecord?.user_id
           ) {
             const { data: userData } = await supabase
@@ -56,7 +64,7 @@ export function useSupabaseRealtime() {
 
             const userColor = userData?.color_hash || generateStarColor()
 
-            if (payload.eventType === 'INSERT') {
+            if (eventType === 'INSERT') {
               addOtherUser({
                 id: newRecord.user_id,
                 color: userColor,
