@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { RealtimeChannel } from '@supabase/supabase-js'
+import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { supabase, getUsersInArea } from '../services/supabase'
 import { useUserStore } from '../store/userStore'
 import { generateStarColor } from '../utils/constants'
@@ -30,9 +30,9 @@ export function useSupabaseRealtime() {
           schema: 'public',
           table: 'active_positions'
         },
-        async (payload: { new: RecordType; old: RecordType; eventType: string }) => {
-          const newRecord = payload.new
-          const oldRecord = payload.old
+        async (payload: RealtimePostgresChangesPayload<RecordType>) => {
+          const newRecord = payload.new as RecordType
+          const oldRecord = payload.old as RecordType
 
           if (newRecord.user_id === currentUser.id || oldRecord.user_id === currentUser.id) {
             return
