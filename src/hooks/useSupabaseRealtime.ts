@@ -21,7 +21,6 @@ export function useSupabaseRealtime() {
 
   const startRealtime = () => {
     if (!currentUser || channelRef.current) return
-    // Create realtime channel
     const channel = supabase
       .channel('constellation-realtime')
       .on(
@@ -32,20 +31,17 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload) => {
-          // Explicit typing for records
           const newRecord = payload.new as RecordType
           const oldRecord = payload.old as RecordType
 
-          // Skip own position updates
-          if ((newRecord?.user_id && newRecord.user_id === currentUser.id) ||
-              (oldRecord?.user_id && oldRecord.user_id === currentUser.id)) {
+          if ((newRecord.user_id && newRecord.user_id === currentUser.id) ||
+              (oldRecord.user_id && oldRecord.user_id === currentUser.id)) {
             return
           }
 
-          if (payload.eventType === 'DELETE' && oldRecord?.user_id) {
+          if (payload.eventType === 'DELETE' && oldRecord.user_id) {
             removeOtherUser(oldRecord.user_id)
-          } else if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && newRecord?.user_id) {
-            // Get user color from database
+          } else if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && newRecord.user_id) {
             const { data: userData } = await supabase
               .from('users')
               .select('color_hash')
@@ -74,7 +70,6 @@ export function useSupabaseRealtime() {
         if (status === 'SUBSCRIBED') {
           console.log('✅ Realtime connected')
           toast.success('🔗 Connected to constellation network')
-          // Load initial users
           loadInitialUsers()
         } else if (status === 'CHANNEL_ERROR') {
           console.error('❌ Realtime connection failed')
@@ -113,14 +108,13 @@ export function useSupabaseRealtime() {
       channelRef.current = null
     }
   }
-  // Cleanup on unmount
+
   useEffect(() => {
     return () => {
       stopRealtime()
     }
   }, [])
 
-  // Auto-cleanup old positions
   useEffect(() => {
     if (!currentUser) return
     const cleanup = async () => {
@@ -130,7 +124,6 @@ export function useSupabaseRealtime() {
         .delete()
         .lt('updated_at', fiveMinutesAgo)
     }
-    // Cleanup every minute
     const interval = setInterval(cleanup, 60000)
     return () => clearInterval(interval)
   }, [currentUser])
@@ -140,4 +133,3 @@ export function useSupabaseRealtime() {
     stopRealtime
   }
 }
-
