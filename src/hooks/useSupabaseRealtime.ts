@@ -32,15 +32,12 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload: RealtimePostgresChangesPayload<RecordType>) => {
-          const newRecord = payload.new as RecordType | null
-          const oldRecord = payload.old as RecordType | null
-
-          // dacă nu există recorduri, ieșim
-          if (!newRecord && !oldRecord) return
+          const newRecord = payload.new as RecordType | undefined
+          const oldRecord = payload.old as RecordType | undefined
 
           if (
-            (newRecord && newRecord.user_id === currentUser.id) ||
-            (oldRecord && oldRecord.user_id === currentUser.id)
+            (newRecord?.user_id && newRecord.user_id === currentUser.id) ||
+            (oldRecord?.user_id && oldRecord.user_id === currentUser.id)
           ) {
             return
           }
