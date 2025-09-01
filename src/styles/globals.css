@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #000;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Remove mapbox controls */
+  .mapboxgl-ctrl-logo,
+  .mapboxgl-ctrl-attrib {
+    display: none !important;
+  }
+
+  /* Smooth scrolling */
+  * {
+    scroll-behavior: smooth;
+  }
+
+  /* Custom scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
+
+  /* Glassmorphism utilities */
+  .glass {
+    background: linear-gradient(135deg, 
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.05)
+    );
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-dark {
+    background: linear-gradient(135deg, 
+      rgba(0, 0, 0, 0.7),
+      rgba(30, 30, 30, 0.5)
+    );
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Star glow effect */
+  .star-glow {
+    filter: drop-shadow(0 0 10px currentColor) 
+            drop-shadow(0 0 20px currentColor)
+            drop-shadow(0 0 30px currentColor);
+  }
+
+  /* Constellation line gradients */
+  .constellation-line {
+    background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(0, 212, 255, 0.6) 20%,
+      rgba(255, 255, 255, 0.8) 50%,
+      rgba(255, 0, 234, 0.6) 80%,
+      transparent 100%
+    );
+  }
+
+  /* Pulsing animation */
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulse-glow {
+    0% {
+      filter: brightness(1) drop-shadow(0 0 10px currentColor);
+    }
+    100% {
+      filter: brightness(1.3) drop-shadow(0 0 20px currentColor);
+    }
+  }
+
+  /* Mobile optimizations */
+  @media (max-width: 768px) {
+    html {
+      -webkit-text-size-adjust: none;
+      text-size-adjust: none;
+    }
+
+    body {
+      position: fixed;
+      width: 100%;
+      height: 100vh;
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+
+  /* Safe area support for iOS */
+  @supports (padding: env(safe-area-inset-top)) {
+    .safe-top {
+      padding-top: env(safe-area-inset-top);
+    }
+    
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    .safe-left {
+      padding-left: env(safe-area-inset-left);
+    }
+    
+    .safe-right {
+      padding-right: env(safe-area-inset-right);
+    }
+  }
+}
