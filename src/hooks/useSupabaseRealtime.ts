@@ -12,65 +12,61 @@ export function useSupabaseRealtime() {
   const startRealtime = () => {
     if (!currentUser || channelRef.current) return
 
-    // Create realtime channel
     const channel = supabase
       .channel('constellation-realtime')
       .on(
-        'postgres_changes',
+        'postgres_changes' as any,
         {
           event: '*',
           schema: 'public',
           table: 'active_positions'
         },
         async (payload: any) => {
-          const { eventType, new: newRecord, old: oldRecord } = payload
+          const eventType = payload.eventType
+          const newRecord = payload.new
+          const oldRecord = payload.old
 
-          // Cast to any to bypass TypeScript checks
-          const newData = newRecord as any
-          const oldData = oldRecord as any
-
-          // Skip own position updates
-          if ((newData && newData.user_id === currentUser.id) || 
-              (oldData && oldData.user_id === currentUser.id)) {
+          // Skip own updates - check safely
+          const newUserId = newRecord ? (newRecord as any).user_id : null
+          const oldUserId = oldRecord ? (oldRecord as any).user_id : null
+          
+          if (newUserId === currentUser.id || oldUserId === currentUser.id) {
             return
           }
 
-          if (eventType === 'DELETE' && oldData) {
-            removeOtherUser(oldData.user_id)
-          } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newData) {
-            // Get user color from database
+          if (eventType === 'DELETE' && oldUserId) {
+            removeOtherUser(oldUserId)
+          } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newUserId) {
             const { data: userData } = await supabase
               .from('users')
               .select('color_hash')
-              .eq('id', newData.user_id)
+              .eq('id', newUserId)
               .single()
 
             const userColor = userData?.color_hash || generateStarColor()
 
             if (eventType === 'INSERT') {
               addOtherUser({
-                id: newData.user_id,
+                id: newUserId,
                 color: userColor,
                 position: {
-                  lat: newData.lat,
-                  lng: newData.lng
+                  lat: (newRecord as any).lat,
+                  lng: (newRecord as any).lng
                 }
               })
             } else {
-              updateOtherUser(newData.user_id, {
-                lat: newData.lat,
-                lng: newData.lng
+              updateOtherUser(newUserId, {
+                lat: (newRecord as any).lat,
+                lng: (newRecord as any).lng
               })
             }
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
           console.log('✅ Realtime connected')
           toast.success('🔗 Connected to constellation network')
-          
-          // Load initial users
           loadInitialUsers()
         } else if (status === 'CHANNEL_ERROR') {
           console.error('❌ Realtime connection failed')
@@ -89,9 +85,10 @@ export function useSupabaseRealtime() {
       
       usersData.forEach((userData: any) => {
         if (userData.user_id !== currentUser.id) {
+          const userColor = userData.users?.color_hash || generateStarColor()
           addOtherUser({
             id: userData.user_id,
-            color: userData.users?.color_hash || generateStarColor(),
+            color: userColor,
             position: {
               lat: userData.lat,
               lng: userData.lng
@@ -113,14 +110,12 @@ export function useSupabaseRealtime() {
     }
   }
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopRealtime()
     }
   }, [])
 
-  // Auto-cleanup old positions
   useEffect(() => {
     if (!currentUser) return
 
@@ -133,9 +128,7 @@ export function useSupabaseRealtime() {
         .lt('updated_at', fiveMinutesAgo)
     }
 
-    // Cleanup every minute
     const interval = setInterval(cleanup, 60000)
-    
     return () => clearInterval(interval)
   }, [currentUser])
 
