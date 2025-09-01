@@ -5,52 +5,29 @@ import { useUserStore } from '../store/userStore'
 import { generateStarColor } from '../utils/constants'
 import toast from 'react-hot-toast'
 
-type RecordType = {
-  user_id: string
-  lat?: number
-  lng?: number
-  color_hash?: string
-  [key: string]: any
-}
-
-type TypedPayload = {
+// Definim tipul pentru payload-ul de la Supabase
+interface RealtimePayload {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  new: RecordType | null
-  old: RecordType | null
+  new: {
+    user_id: string
+    lat: number
+    lng: number
+    [key: string]: any
+  } | null
+  old: {
+    user_id: string
+    [key: string]: any
+  } | null
 }
 
 export function useSupabaseRealtime() {
   const { currentUser, addOtherUser, removeOtherUser, updateOtherUser } = useUserStore()
   const channelRef = useRef<RealtimeChannel | null>(null)
 
-  const loadInitialUsers = async () => {
-    if (!currentUser) return
-    try {
-      const usersData = await getUsersInArea()
-      console.log('Utilizatori încărcați:', usersData)
-
-      usersData.forEach((userData: RecordType) => {
-        if (userData.user_id !== currentUser.id) {
-          addOtherUser({
-            id: userData.user_id,
-            color: userData.color_hash || generateStarColor(),
-            position: {
-              lat: userData.lat,
-              lng: userData.lng
-            }
-          })
-        }
-      })
-
-      console.log(`📍 S-au încărcat ${usersData.length} utilizatori din apropiere`)
-    } catch (error) {
-      console.error('Nu s-au putut încărca utilizatorii inițiali:', error)
-    }
-  }
-
   const startRealtime = () => {
     if (!currentUser || channelRef.current) return
 
+    // Create realtime channel
     const channel = supabase
       .channel('constellation-realtime')
       .on(
@@ -60,28 +37,25 @@ export function useSupabaseRealtime() {
           schema: 'public',
           table: 'active_positions'
         },
-        async (payload: TypedPayload) => {
-          console.log('📡 Payload primit:', payload)
+        async (payload: any) => {
+          const { eventType, new: newRecord, old: oldRecord } = payload as RealtimePayload
 
-          const eventType = payload.eventType
-          const newRecord = payload.new as RecordType | null
-          const oldRecord = payload.old as RecordType | null
-
-          // Ignoră evenimentele de la userul curent
-          if (
-            (newRecord?.user_id && newRecord.user_id === currentUser.id) ||
-            (oldRecord?.user_id && oldRecord.user_id === currentUser.id)
-          ) {
+          // Skip own position updates
+          if (newRecord?.user_id === currentUser.id || oldRecord?.user_id === currentUser.id) {
             return
           }
 
-          if (eventType === 'DELETE' && oldRecord?.user_id) {
+          if (eventType === 'DELETE' && oldRecord) {
             removeOtherUser(oldRecord.user_id)
-          } else if (
-            (eventType === 'INSERT' || eventType === 'UPDATE') &&
-            newRecord?.user_id
-          ) {
-            const userColor = newRecord.color_hash || generateStarColor()
+          } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRecord) {
+            // Get user color from database
+            const { data: userData } = await supabase
+              .from('users')
+              .select('color_hash')
+              .eq('id', newRecord.user_id)
+              .single()
+
+            const userColor = userData?.color_hash || generateStarColor()
 
             if (eventType === 'INSERT') {
               addOtherUser({
@@ -104,48 +78,74 @@ export function useSupabaseRealtime() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log('✅ Realtime connected')
-          toast.success('🔗 Conectat la rețeaua de constelații')
+          toast.success('🔗 Connected to constellation network')
+          
+          // Load initial users
           loadInitialUsers()
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Realtime channel error')
-          toast.error('Conexiune Realtime eșuată')
-        } else if (status === 'CLOSED') {
-          console.warn('⚠️ Realtime channel closed')
+          console.error('❌ Realtime connection failed')
+          toast.error('Failed to connect to constellation network')
         }
       })
 
     channelRef.current = channel
   }
 
-  const stopRealtime = async () => {
+  const loadInitialUsers = async () => {
+    if (!currentUser) return
+
+    try {
+      const usersData = await getUsersInArea()
+      
+      usersData.forEach((userData: any) => {
+        if (userData.user_id !== currentUser.id) {
+          addOtherUser({
+            id: userData.user_id,
+            color: userData.users?.color_hash || generateStarColor(),
+            position: {
+              lat: userData.lat,
+              lng: userData.lng
+            }
+          })
+        }
+      })
+
+      console.log(`📍 Loaded ${usersData.length} nearby users`)
+    } catch (error) {
+      console.error('Failed to load initial users:', error)
+    }
+  }
+
+  const stopRealtime = () => {
     if (channelRef.current) {
-      await channelRef.current.unsubscribe()
+      supabase.removeChannel(channelRef.current)
       channelRef.current = null
     }
   }
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopRealtime()
     }
   }, [])
 
+  // Auto-cleanup old positions
   useEffect(() => {
     if (!currentUser) return
 
     const cleanup = async () => {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-      try {
-        await supabase
-          .from('active_positions')
-          .delete()
-          .lt('updated_at', fiveMinutesAgo)
-      } catch (err) {
-        console.error('Eroare la cleanup:', err)
-      }
+      
+      await supabase
+        .from('active_positions')
+        .delete()
+        .lt('updated_at', fiveMinutesAgo)
     }
 
-    const interval = setInterval(cleanup, 60_000)
+    // Cleanup every minute
+    const interval = setInterval(cleanup, 60000)
+    
     return () => clearInterval(interval)
   }, [currentUser])
 
