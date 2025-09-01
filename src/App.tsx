@@ -14,25 +14,19 @@ function App() {
 
   useEffect(() => {
     const init = async () => {
-      // Initialize user first
       await initializeUser()
     }
     init()
   }, [initializeUser])
 
-  // Start realtime and request location after user is initialized
   useEffect(() => {
     if (currentUser && !isLoading) {
       const setupApp = async () => {
-        // Request location permission
         const locationGranted = await requestPermission()
-        
         if (locationGranted) {
-          // Start realtime sync
           startRealtime()
         }
       }
-      
       setupApp()
     }
   }, [currentUser, isLoading, requestPermission, startRealtime])
@@ -59,18 +53,6 @@ function App() {
             backdropFilter: 'blur(20px)',
             fontSize: '14px',
             fontWeight: '500'
-          },
-          success: {
-            iconTheme: {
-              primary: '#00FF88',
-              secondary: '#000'
-            }
-          },
-          error: {
-            iconTheme: {
-              primary: '#FF3366',
-              secondary: '#000'
-            }
           }
         }}
       />
