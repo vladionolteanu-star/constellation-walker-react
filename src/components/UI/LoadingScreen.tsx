@@ -113,4 +113,10 @@ export default function LoadingScreen() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 2, duration: 1 }}
-        className="absolute bottom-10 text-xs text-white/50 text-center px-8
+        className="absolute bottom-10 text-xs text-white/50 text-center px-8"
+      >
+        Location permission required for constellation view
+      </motion.div>
+    </motion.div>
+  )
+}
