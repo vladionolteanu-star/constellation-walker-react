@@ -22,9 +22,9 @@ export default function AppLayout() {
         </div>
       </div>
       
-      {/* Bottom UI */}
+      {/* Bottom UI - Mai sus acum */}
       <div className="absolute bottom-0 left-0 right-0 z-50">
-        <div className="flex justify-center pb-safe-bottom pb-8">
+        <div className="flex justify-center pb-safe-bottom pb-16">
           <EchoButton />
         </div>
       </div>
