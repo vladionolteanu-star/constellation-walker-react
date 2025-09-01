@@ -5,21 +5,23 @@ import { useUserStore } from '../store/userStore'
 import { generateStarColor } from '../utils/constants'
 import toast from 'react-hot-toast'
 
+// Am corectat tipul 'users' pentru a fi un array de obiecte,
+// așa cum este returnat de Supabase
 type RecordType = {
   user_id: string
   lat?: number
   lng?: number
   users?: {
     color_hash?: string
-  }
+  }[]
   [key: string]: any
 }
 
-// suprascriem payload-ul de la Supabase cu ce avem noi nevoie
+// Am făcut tipul de payload mai flexibil pentru a evita erorile
 type TypedPayload = {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  new: RecordType | null
-  old: RecordType | null
+  new: Record<string, any> | null
+  old: Record<string, any> | null
 }
 
 export function useSupabaseRealtime() {
@@ -39,9 +41,10 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload: any) => {
-          const { eventType, new: newRow, old: oldRow } = payload as TypedPayload
-          const newRecord = newRow ?? undefined
-          const oldRecord = oldRow ?? undefined
+          // Aici facem o verificare mai robustă înainte de a accesa proprietățile
+          const { eventType } = payload
+          const newRecord = payload.new as RecordType | null
+          const oldRecord = payload.old as RecordType | null
 
           if (
             (newRecord?.user_id && newRecord.user_id === currentUser.id) ||
@@ -85,11 +88,11 @@ export function useSupabaseRealtime() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           console.log('✅ Realtime connected')
-          toast.success('🔗 Connected to constellation network')
+          toast.success('🔗 Conectat la rețeaua de constelații')
           loadInitialUsers()
         } else if (status === 'CHANNEL_ERROR') {
           console.error('❌ Realtime connection failed')
-          toast.error('Failed to connect to constellation network')
+          toast.error('Nu s-a putut conecta la rețeaua de constelații')
         }
       })
 
@@ -104,7 +107,8 @@ export function useSupabaseRealtime() {
         if (userData.user_id !== currentUser.id) {
           addOtherUser({
             id: userData.user_id,
-            color: userData.users?.color_hash || generateStarColor(),
+            // Aici am corectat accesul la `color_hash`, deoarece `users` este un array
+            color: userData.users?.[0]?.color_hash || generateStarColor(),
             position: {
               lat: userData.lat,
               lng: userData.lng
@@ -112,9 +116,9 @@ export function useSupabaseRealtime() {
           })
         }
       })
-      console.log(`📍 Loaded ${usersData.length} nearby users`)
+      console.log(`📍 S-au încărcat ${usersData.length} utilizatori din apropiere`)
     } catch (error) {
-      console.error('Failed to load initial users:', error)
+      console.error('Nu s-au putut încărca utilizatorii inițiali:', error)
     }
   }
 
