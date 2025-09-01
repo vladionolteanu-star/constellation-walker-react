@@ -15,9 +15,9 @@ export default function EchoButton() {
       {/* Echo Menu */}
       <EchoMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
-      {/* Main Echo Button - Always visible */}
+      {/* Main Echo Button with VIBE text */}
       <motion.button
-        className="relative w-16 h-16 rounded-full text-white shadow-2xl z-50 overflow-hidden"
+        className="relative px-8 py-4 rounded-full text-white shadow-2xl z-50 overflow-hidden flex items-center gap-3"
         style={{
           background: `linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)`,
           boxShadow: `
@@ -69,7 +69,7 @@ export default function EchoButton() {
 
         {/* Icon */}
         <motion.div
-          className="relative z-10 w-full h-full flex items-center justify-center"
+          className="relative z-10 flex items-center justify-center"
           animate={{ 
             rotate: isMenuOpen ? 45 : 0,
             scale: isMenuOpen ? 0.9 : 1
@@ -78,6 +78,24 @@ export default function EchoButton() {
         >
           <Sparkles size={24} />
         </motion.div>
+
+        {/* VIBE Text */}
+        <motion.span
+          className="relative z-10 font-bold text-lg tracking-wider"
+          style={{
+            textShadow: '0 2px 20px rgba(255, 255, 255, 0.5)'
+          }}
+          animate={{
+            scale: [1, 1.05, 1],
+          }}
+          transition={{
+            duration: 2,
+            repeat: Infinity,
+            ease: 'easeInOut'
+          }}
+        >
+          VIBE
+        </motion.span>
 
         {/* Ripple effect */}
         <motion.div
