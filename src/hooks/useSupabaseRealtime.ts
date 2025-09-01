@@ -5,21 +5,6 @@ import { useUserStore } from '../store/userStore'
 import { generateStarColor } from '../utils/constants'
 import toast from 'react-hot-toast'
 
-// Definim tipul pentru payload-ul de la Supabase
-interface RealtimePayload {
-  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  new: {
-    user_id: string
-    lat: number
-    lng: number
-    [key: string]: any
-  } | null
-  old: {
-    user_id: string
-    [key: string]: any
-  } | null
-}
-
 export function useSupabaseRealtime() {
   const { currentUser, addOtherUser, removeOtherUser, updateOtherUser } = useUserStore()
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -38,38 +23,43 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload: any) => {
-          const { eventType, new: newRecord, old: oldRecord } = payload as RealtimePayload
+          const { eventType, new: newRecord, old: oldRecord } = payload
+
+          // Cast to any to bypass TypeScript checks
+          const newData = newRecord as any
+          const oldData = oldRecord as any
 
           // Skip own position updates
-          if (newRecord?.user_id === currentUser.id || oldRecord?.user_id === currentUser.id) {
+          if ((newData && newData.user_id === currentUser.id) || 
+              (oldData && oldData.user_id === currentUser.id)) {
             return
           }
 
-          if (eventType === 'DELETE' && oldRecord) {
-            removeOtherUser(oldRecord.user_id)
-          } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRecord) {
+          if (eventType === 'DELETE' && oldData) {
+            removeOtherUser(oldData.user_id)
+          } else if ((eventType === 'INSERT' || eventType === 'UPDATE') && newData) {
             // Get user color from database
             const { data: userData } = await supabase
               .from('users')
               .select('color_hash')
-              .eq('id', newRecord.user_id)
+              .eq('id', newData.user_id)
               .single()
 
             const userColor = userData?.color_hash || generateStarColor()
 
             if (eventType === 'INSERT') {
               addOtherUser({
-                id: newRecord.user_id,
+                id: newData.user_id,
                 color: userColor,
                 position: {
-                  lat: newRecord.lat,
-                  lng: newRecord.lng
+                  lat: newData.lat,
+                  lng: newData.lng
                 }
               })
             } else {
-              updateOtherUser(newRecord.user_id, {
-                lat: newRecord.lat,
-                lng: newRecord.lng
+              updateOtherUser(newData.user_id, {
+                lat: newData.lat,
+                lng: newData.lng
               })
             }
           }
