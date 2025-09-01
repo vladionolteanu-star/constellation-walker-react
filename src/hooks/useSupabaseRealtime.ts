@@ -6,7 +6,7 @@ import { generateStarColor } from '../utils/constants'
 import toast from 'react-hot-toast'
 
 type RecordType = {
-  user_id?: string
+  user_id: string
   lat?: number
   lng?: number
   users?: {
@@ -34,8 +34,7 @@ export function useSupabaseRealtime() {
           const newRecord = payload.new as RecordType
           const oldRecord = payload.old as RecordType
 
-          if ((newRecord.user_id && newRecord.user_id === currentUser.id) ||
-              (oldRecord.user_id && oldRecord.user_id === currentUser.id)) {
+          if (newRecord.user_id === currentUser.id || oldRecord.user_id === currentUser.id) {
             return
           }
 
