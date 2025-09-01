@@ -21,6 +21,7 @@ export function useSupabaseRealtime() {
 
   const startRealtime = () => {
     if (!currentUser || channelRef.current) return
+
     const channel = supabase
       .channel('constellation-realtime')
       .on(
@@ -31,22 +32,33 @@ export function useSupabaseRealtime() {
           table: 'active_positions'
         },
         async (payload: RealtimePostgresChangesPayload<RecordType>) => {
-          const newRecord = payload.new as RecordType
-          const oldRecord = payload.old as RecordType
+          const newRecord = payload.new as RecordType | null
+          const oldRecord = payload.old as RecordType | null
 
-          if (newRecord.user_id === currentUser.id || oldRecord.user_id === currentUser.id) {
+          // dacă nu există recorduri, ieșim
+          if (!newRecord && !oldRecord) return
+
+          if (
+            (newRecord && newRecord.user_id === currentUser.id) ||
+            (oldRecord && oldRecord.user_id === currentUser.id)
+          ) {
             return
           }
 
-          if (payload.eventType === 'DELETE' && oldRecord.user_id) {
+          if (payload.eventType === 'DELETE' && oldRecord?.user_id) {
             removeOtherUser(oldRecord.user_id)
-          } else if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && newRecord.user_id) {
+          } else if (
+            (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') &&
+            newRecord?.user_id
+          ) {
             const { data: userData } = await supabase
               .from('users')
               .select('color_hash')
               .eq('id', newRecord.user_id)
               .single()
+
             const userColor = userData?.color_hash || generateStarColor()
+
             if (payload.eventType === 'INSERT') {
               addOtherUser({
                 id: newRecord.user_id,
