@@ -21,18 +21,11 @@ export function useSupabaseRealtime() {
           schema: 'public',
           table: 'active_positions'
         },
-        async (payload: any) => {
-          const eventType = payload.eventType
-          const newRecord = payload.new
-          const oldRecord = payload.old
-
-          // Skip own updates - check safely
-          const newUserId = newRecord ? (newRecord as any).user_id : null
-          const oldUserId = oldRecord ? (oldRecord as any).user_id : null
-          
-          if (newUserId === currentUser.id || oldUserId === currentUser.id) {
-            return
-          }
+        async (payload) => {
+  console.log('PAYLOAD RECEIVED:', payload)
+  // Temporar - skip tot pentru a vedea structura
+  return
+}
 
           if (eventType === 'DELETE' && oldUserId) {
             removeOtherUser(oldUserId)
