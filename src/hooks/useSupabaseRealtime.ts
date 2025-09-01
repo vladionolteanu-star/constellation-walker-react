@@ -1,3 +1,7 @@
+type RecordType = {
+  user_id?: string;
+  [key: string]: any;
+}
 import { useEffect, useRef } from 'react'
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase, getUsersInArea } from '../services/supabase'
