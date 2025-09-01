@@ -58,7 +58,6 @@ export default function MapContainer() {
         dragRotate={true}
         touchZoomRotate={false}
         attributionControl={false}
-        logoControl={false}
       >
         {/* Constellation Lines - Render first so they appear behind markers */}
         <ConstellationLines />
