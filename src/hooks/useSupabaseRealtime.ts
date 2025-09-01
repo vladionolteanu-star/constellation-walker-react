@@ -30,9 +30,9 @@ export function useSupabaseRealtime() {
           schema: 'public',
           table: 'active_positions'
         },
-        async (payload) => {
-          const newRecord = payload.new as RecordType
-          const oldRecord = payload.old as RecordType
+        async (payload: { new: RecordType; old: RecordType; eventType: string }) => {
+          const newRecord = payload.new
+          const oldRecord = payload.old
 
           if (newRecord.user_id === currentUser.id || oldRecord.user_id === currentUser.id) {
             return
