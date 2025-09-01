@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import MapContainer from '../Map/MapContainer'
+import MapContainer from '../map/MapContainer'
 import EchoButton from '../Echo/EchoButton'
 import UserCounter from '../UI/UserCounter'
 import ConnectionStatus from '../UI/ConnectionStatus'
