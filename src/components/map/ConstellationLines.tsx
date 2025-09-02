@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Source, Layer } from 'react-map-gl'
 import { useUserStore } from '../../store/userStore'
-import { calculateDistance, CONNECTION_DISTANCE, MAX_CONNECTIONS } from '../../utils/constants'
+import { calculateDistance } from '../../utils/constants'
 
 export default function ConstellationLines() {
   const { currentUser, otherUsers } = useUserStore()
@@ -17,8 +17,8 @@ export default function ConstellationLines() {
     const features: any[] = []
     const myPosition = currentUser.position
 
-    // Get nearby users within connection distance
-    const nearbyUsers = otherUsers
+    // Connect with all other users regardless of distance
+    const connectedUsers = otherUsers
       .filter(user => user.position)
       .map(user => ({
         ...user,
@@ -29,12 +29,9 @@ export default function ConstellationLines() {
           user.position!.lng
         )
       }))
-      .filter(user => user.distance < CONNECTION_DISTANCE)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, MAX_CONNECTIONS)
 
-    // Create lines from current user to nearby users
-    nearbyUsers.forEach((user, index) => {
+    // Create light ray connections to all users
+    connectedUsers.forEach((user, index) => {
       features.push({
         type: 'Feature',
         properties: {
@@ -53,37 +50,33 @@ export default function ConstellationLines() {
       })
     })
 
-    // Create connections between nearby users (triangulation)
-    for (let i = 0; i < nearbyUsers.length; i++) {
-      for (let j = i + 1; j < nearbyUsers.length; j++) {
-        const user1 = nearbyUsers[i]
-        const user2 = nearbyUsers[j]
+    // Create connections between all users for complete constellation
+    for (let i = 0; i < connectedUsers.length; i++) {
+      for (let j = i + 1; j < connectedUsers.length; j++) {
+        const user1 = connectedUsers[i]
+        const user2 = connectedUsers[j]
         
-        const interUserDistance = calculateDistance(
-          user1.position!.lat,
-          user1.position!.lng,
-          user2.position!.lat,
-          user2.position!.lng
-        )
-
-        if (interUserDistance < CONNECTION_DISTANCE * 0.8) { // Shorter distance for secondary connections
-          features.push({
-            type: 'Feature',
-            properties: {
-              distance: interUserDistance,
-              secondary: true,
-              color1: user1.color,
-              color2: user2.color
-            },
-            geometry: {
-              type: 'LineString',
-              coordinates: [
-                [user1.position!.lng, user1.position!.lat],
-                [user2.position!.lng, user2.position!.lat]
-              ]
-            }
-          })
-        }
+        features.push({
+          type: 'Feature',
+          properties: {
+            distance: calculateDistance(
+              user1.position!.lat,
+              user1.position!.lng,
+              user2.position!.lat,
+              user2.position!.lng
+            ),
+            secondary: true,
+            color1: user1.color,
+            color2: user2.color
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [user1.position!.lng, user1.position!.lat],
+              [user2.position!.lng, user2.position!.lat]
+            ]
+          }
+        })
       }
     }
 
@@ -103,7 +96,7 @@ export default function ConstellationLines() {
       type="geojson"
       data={constellationData}
     >
-      {/* Primary constellation lines (from me to others) */}
+      {/* Enhanced light ray effect for primary connections */}
       <Layer
         id="constellation-primary"
         type="line"
@@ -113,26 +106,20 @@ export default function ConstellationLines() {
             'interpolate',
             ['linear'],
             ['line-progress'],
-            0, '#00D4FF',
-            0.5, '#FFFFFF', 
-            1, ['get', 'color']
+            0, '#FFFFFF',
+            0.5, ['get', 'color'],
+            1, '#FFFFFF'
           ],
           'line-width': [
             'interpolate',
             ['exponential', 2],
             ['zoom'],
-            12, 2,
-            16, 4,
-            20, 8
+            12, 3,
+            16, 6,
+            20, 12
           ],
-          'line-opacity': [
-            'interpolate',
-            ['linear'],
-            ['get', 'distance'],
-            0, 0.8,
-            CONNECTION_DISTANCE, 0.3
-          ],
-          'line-blur': 1
+          'line-opacity': 0.8,
+          'line-blur': 3
         }}
         layout={{
           'line-cap': 'round',
@@ -140,29 +127,23 @@ export default function ConstellationLines() {
         }}
       />
 
-      {/* Glow effect for primary lines */}
+      {/* Glowing effect for primary connections */}
       <Layer
         id="constellation-primary-glow"
         type="line"
         filter={['==', ['get', 'primary'], true]}
         paint={{
-          'line-color': '#FFFFFF',
+          'line-color': ['get', 'color'],
           'line-width': [
             'interpolate',
             ['exponential', 2],
             ['zoom'],
             12, 8,
-            16, 12,
-            20, 20
+            16, 16,
+            20, 24
           ],
-          'line-opacity': [
-            'interpolate',
-            ['linear'],
-            ['get', 'distance'],
-            0, 0.3,
-            CONNECTION_DISTANCE, 0.1
-          ],
-          'line-blur': 8
+          'line-opacity': 0.2,
+          'line-blur': 15
         }}
         layout={{
           'line-cap': 'round',
@@ -170,7 +151,7 @@ export default function ConstellationLines() {
         }}
       />
 
-      {/* Secondary constellation lines (between others) */}
+      {/* Secondary connections between other users */}
       <Layer
         id="constellation-secondary"
         type="line"
@@ -187,17 +168,11 @@ export default function ConstellationLines() {
             'interpolate',
             ['exponential', 2],
             ['zoom'],
-            12, 1,
-            16, 2,
-            20, 4
+            12, 2,
+            16, 4,
+            20, 8
           ],
-          'line-opacity': [
-            'interpolate',
-            ['linear'],
-            ['get', 'distance'],
-            0, 0.4,
-            CONNECTION_DISTANCE * 0.8, 0.1
-          ],
+          'line-opacity': 0.4,
           'line-blur': 2
         }}
         layout={{
