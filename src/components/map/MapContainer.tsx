@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { supabase } from '../config/supabase';
+import { supabase } from '../../services/supabase';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 mapboxgl.accessToken = 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g';
 
 interface User {
-  id: string;
-  lat: number;
-  lng: number;
-  name: string;
-  isBot?: boolean;
-  isCurrentUser?: boolean;
+  user_id: string;
+  color: string;
+  position: {
+    lat: number;
+    lng: number;
+  };
 }
 
 const MapContainer: React.FC = () => {
@@ -20,15 +20,7 @@ const MapContainer: React.FC = () => {
   const [users, setUsers] = useState<Record<string, User>>({});
   const markers = useRef<Record<string, mapboxgl.Marker>>({});
   const userId = useRef(`user-${Date.now()}-${Math.random()}`);
-
-  // Bot de test - poziție fixă București
-  const TEST_BOT: User = {
-    id: 'bot-nebula-001',
-    lat: 44.4268,
-    lng: 26.1025,
-    name: 'Nebula Bot',
-    isBot: true
-  };
+  const channel = useRef<any>(null);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
@@ -43,12 +35,12 @@ const MapContainer: React.FC = () => {
 
     map.current.on('load', () => {
       setupMapLayers();
-      addBot();
       startTracking();
       setupRealtime();
     });
 
     return () => {
+      channel.current?.unsubscribe();
       map.current?.remove();
     };
   }, []);
@@ -91,41 +83,40 @@ const MapContainer: React.FC = () => {
     });
   };
 
-  const addBot = () => {
-    addUserToMap(TEST_BOT);
-    setUsers(prev => ({ ...prev, [TEST_BOT.id]: TEST_BOT }));
-  };
-
   const startTracking = () => {
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(
-        (position) => {
-          const user: User = {
-            id: userId.current,
+        async (position) => {
+          const userPosition = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            name: 'You',
-            isCurrentUser: true
+            lng: position.coords.longitude
           };
           
-          addUserToMap(user);
-          setUsers(prev => ({ ...prev, [user.id]: user }));
-          broadcastPosition(user);
+          // Track in presence channel
+          if (channel.current) {
+            await channel.current.track({
+              user_id: userId.current,
+              color: '#00ff00',
+              position: userPosition
+            });
+          }
         },
-        (error) => {
+        async (error) => {
           console.error('GPS Error:', error);
           // Fallback - poziție random în București
-          const user: User = {
-            id: userId.current,
+          const userPosition = {
             lat: 44.4268 + (Math.random() - 0.5) * 0.05,
-            lng: 26.1025 + (Math.random() - 0.5) * 0.05,
-            name: 'You',
-            isCurrentUser: true
+            lng: 26.1025 + (Math.random() - 0.5) * 0.05
           };
           
-          addUserToMap(user);
-          setUsers(prev => ({ ...prev, [user.id]: user }));
-          broadcastPosition(user);
+          // Track in presence channel
+          if (channel.current) {
+            await channel.current.track({
+              user_id: userId.current,
+              color: '#00ff00',
+              position: userPosition
+            });
+          }
         },
         {
           enableHighAccuracy: true,
@@ -136,26 +127,43 @@ const MapContainer: React.FC = () => {
     }
   };
 
-  const broadcastPosition = async (user: User) => {
-    try {
-      await supabase.channel('presence').send({
-        type: 'broadcast',
-        event: 'location_update',
-        payload: user
-      });
-    } catch (error) {
-      console.error('Broadcast error:', error);
-    }
-  };
-
   const setupRealtime = () => {
-    supabase
-      .channel('presence')
-      .on('broadcast', { event: 'location_update' }, ({ payload }) => {
-        if (payload.id !== userId.current) {
-          addUserToMap(payload);
-          setUsers(prev => ({ ...prev, [payload.id]: payload }));
-        }
+    channel.current = supabase.channel('online-users');
+    
+    channel.current
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.current.presenceState();
+        const allUsers: Record<string, User> = {};
+        
+        Object.keys(state).forEach(key => {
+          const presences = state[key];
+          if (presences && presences.length > 0) {
+            const presence = presences[0];
+            allUsers[presence.user_id] = presence;
+            addUserToMap(presence);
+          }
+        });
+        
+        setUsers(allUsers);
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        newPresences.forEach((presence: User) => {
+          addUserToMap(presence);
+          setUsers(prev => ({ ...prev, [presence.user_id]: presence }));
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        leftPresences.forEach((presence: User) => {
+          if (markers.current[presence.user_id]) {
+            markers.current[presence.user_id].remove();
+            delete markers.current[presence.user_id];
+          }
+          setUsers(prev => {
+            const newUsers = { ...prev };
+            delete newUsers[presence.user_id];
+            return newUsers;
+          });
+        });
       })
       .subscribe();
   };
@@ -164,8 +172,8 @@ const MapContainer: React.FC = () => {
     if (!map.current) return;
 
     // Remove existing marker if exists
-    if (markers.current[user.id]) {
-      markers.current[user.id].remove();
+    if (markers.current[user.user_id]) {
+      markers.current[user.user_id].remove();
     }
 
     // Create marker element
@@ -176,29 +184,31 @@ const MapContainer: React.FC = () => {
     el.style.borderRadius = '50%';
     el.style.border = '2px solid #fff';
     el.style.cursor = 'pointer';
+    el.style.background = user.color || '#00ffff';
+    el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
     
-    if (user.isCurrentUser) {
+    // Special style for current user
+    if (user.user_id === userId.current) {
       el.style.background = '#00ff00';
       el.style.boxShadow = '0 0 30px #00ff00';
-    } else if (user.isBot) {
+    }
+    // Special style for bots
+    else if (user.user_id.startsWith('bot-')) {
       el.style.background = '#ff00ff';
       el.style.boxShadow = '0 0 30px #ff00ff';
-    } else {
-      el.style.background = '#00ffff';
-      el.style.boxShadow = '0 0 30px #00ffff';
     }
 
     // Create marker
     const marker = new mapboxgl.Marker(el)
-      .setLngLat([user.lng, user.lat])
+      .setLngLat([user.position.lng, user.position.lat])
       .setPopup(new mapboxgl.Popup().setHTML(`
         <div style="background: black; color: #00ffff; padding: 5px; font-family: monospace;">
-          ${user.name}
+          ${user.user_id.startsWith('bot-') ? 'Bot' : user.user_id === userId.current ? 'You' : 'User'}
         </div>
       `))
       .addTo(map.current);
 
-    markers.current[user.id] = marker;
+    markers.current[user.user_id] = marker;
   };
 
   // Update connections when users change
@@ -218,8 +228,8 @@ const MapContainer: React.FC = () => {
           geometry: {
             type: 'LineString',
             coordinates: [
-              [userList[i].lng, userList[i].lat],
-              [userList[j].lng, userList[j].lat]
+              [userList[i].position.lng, userList[i].position.lat],
+              [userList[j].position.lng, userList[j].position.lat]
             ]
           }
         });
