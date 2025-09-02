@@ -12,8 +12,8 @@ const humanEvolutionStages = [
 export default function LoadingScreen() {
   const prefersReducedMotion = useReducedMotion();
 
-  // animațiile cosmice ~3s, evoluția umană ~6s
-  const cosmicDuration = prefersReducedMotion ? 0 : 3;
+  // Am mărit puțin durata totală pentru a permite tuturor animațiilor să respire
+  const cosmicDuration = prefersReducedMotion ? 0 : 4;
   const evolutionDuration = prefersReducedMotion ? 0 : 6;
   const transitionEase = prefersReducedMotion ? "linear" : "easeInOut";
 
@@ -29,7 +29,7 @@ export default function LoadingScreen() {
     >
       {/* Big Bang */}
       <motion.div
-        className="absolute inset-0 flex items-center justify-center"
+        className="absolute w-64 h-64 rounded-full"
         initial={{ scale: 0, opacity: 1, rotate: 0 }}
         animate={{
           scale: prefersReducedMotion ? 1 : 25,
@@ -37,31 +37,27 @@ export default function LoadingScreen() {
           rotate: prefersReducedMotion ? 0 : 360,
         }}
         transition={{ duration: cosmicDuration, ease: transitionEase }}
-      >
-        <div
-          className="w-64 h-64 rounded-full"
-          style={{
-            background: `conic-gradient(
-              from 0deg,
-              rgba(255,255,255,1) 0%,
-              rgba(255,69,0,1) 10%,
-              rgba(255,215,0,0.9) 20%,
-              rgba(0,191,255,0.8) 30%,
-              rgba(138,43,226,0.7) 40%,
-              rgba(255,0,234,0.6) 50%,
-              transparent 60%
-            )`,
-            filter: "blur(6px) brightness(1.6)",
-            boxShadow: "0 0 120px rgba(255,255,255,0.9)",
-          }}
-        />
-      </motion.div>
+        style={{
+          background: `conic-gradient(
+            from 0deg,
+            rgba(255,255,255,1) 0%,
+            rgba(255,69,0,1) 10%,
+            rgba(255,215,0,0.9) 20%,
+            rgba(0,191,255,0.8) 30%,
+            rgba(138,43,226,0.7) 40%,
+            rgba(255,0,234,0.6) 50%,
+            transparent 60%
+          )`,
+          filter: "blur(6px) brightness(1.6)",
+          boxShadow: "0 0 120px rgba(255,255,255,0.9)",
+        }}
+      />
 
       {/* Shockwave Rings */}
       {[...Array(6)].map((_, i) => (
         <motion.div
-          key={i}
-          className="absolute inset-0 flex items-center justify-center"
+          key={`shockwave-${i}`}
+          className="absolute w-32 h-32 rounded-full border-4"
           initial={{ scale: 0, opacity: 1 }}
           animate={{ scale: prefersReducedMotion ? 1 : 20, opacity: 0 }}
           transition={{
@@ -69,17 +65,13 @@ export default function LoadingScreen() {
             delay: i * 0.25,
             ease: transitionEase,
           }}
-        >
-          <div
-            className="w-32 h-32 rounded-full border-4"
-            style={{
-              borderColor: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
-              boxShadow: `0 0 80px ${
-                ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6]
-              }`,
-            }}
-          />
-        </motion.div>
+          style={{
+            borderColor: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
+            boxShadow: `0 0 80px ${
+              ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6]
+            }`,
+          }}
+        />
       ))}
 
       {/* Particles */}
@@ -90,8 +82,8 @@ export default function LoadingScreen() {
           const duration = cosmicDuration * (1 + Math.random() * 0.3);
           return (
             <motion.div
-              key={i}
-              className="absolute left-1/2 top-1/2 w-2 h-2"
+              key={`particle-${i}`}
+              className="absolute left-1/2 top-1/2 w-2 h-2 rounded-full"
               initial={{ x: 0, y: 0, scale: 0, opacity: 0 }}
               animate={{
                 x: prefersReducedMotion ? 0 : Math.cos(angle) * distance,
@@ -104,22 +96,18 @@ export default function LoadingScreen() {
                 ease: transitionEase,
                 delay: Math.random() * 0.4,
               }}
-            >
-              <div
-                className="w-full h-full rounded-full"
-                style={{
-                  background: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
-                  boxShadow: `0 0 20px ${
-                    ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6]
-                  }`,
-                }}
-              />
-            </motion.div>
+              style={{
+                background: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
+                boxShadow: `0 0 20px ${
+                  ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6]
+                }`,
+              }}
+            />
           );
         })}
       </div>
 
-      {/* Human Evolution – secvențial, vizibil */}
+      {/* Human Evolution – secvențial, vizibil (Structura era deja corectă) */}
       <motion.div
         className="relative z-20 flex items-center justify-center"
         initial={{ opacity: 1 }}
@@ -139,7 +127,7 @@ export default function LoadingScreen() {
               }}
               transition={{
                 duration: 1, // fiecare etapă durează 1 sec
-                delay: i * 1, // începe una după alta
+                delay: cosmicDuration + i * 1, // pornește după animația cosmică
                 ease: transitionEase,
               }}
               style={{
@@ -156,7 +144,7 @@ export default function LoadingScreen() {
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{
-          delay: evolutionDuration - 1,
+          delay: cosmicDuration + evolutionDuration - 1,
           duration: 0.8,
           type: "spring",
           damping: 12,
@@ -170,7 +158,7 @@ export default function LoadingScreen() {
           }}
           transition={{
             rotate: { duration: 15, repeat: Infinity, ease: "linear" },
-            scale: { duration: 2, repeat: Infinity },
+            scale: { duration: 2, repeat: Infinity, ease: "easeInOut" },
           }}
           style={{
             background: `radial-gradient(circle at 40% 40%, #FFD700, #00D4FF 70%, transparent 90%)`,
@@ -180,7 +168,7 @@ export default function LoadingScreen() {
           className="text-5xl font-bold mb-3 bg-gradient-to-r from-orange-500 via-cyan-400 to-purple-500 bg-clip-text text-transparent"
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: evolutionDuration - 0.8 }}
+          transition={{ delay: cosmicDuration + evolutionDuration - 0.8 }}
         >
           CONSTELLATION
         </motion.h1>
@@ -189,7 +177,7 @@ export default function LoadingScreen() {
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 1, 0.9, 1] }}
           transition={{
-            delay: evolutionDuration - 0.5,
+            delay: cosmicDuration + evolutionDuration - 0.5,
             duration: 0.4,
           }}
         >
