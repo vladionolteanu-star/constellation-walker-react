@@ -25,16 +25,15 @@ const MapContainer: React.FC = () => {
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    // Initialize map focused on Bucharest
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
-      center: [26.1025, 44.4268], // București
+      center: [26.1025, 44.4268],
       zoom: 14,
       pitch: 45,
       maxBounds: [
-        [25.8, 44.2], // SW bounds pentru București
-        [26.4, 44.6]  // NE bounds pentru București
+        [25.8, 44.2],
+        [26.4, 44.6]
       ]
     });
 
@@ -54,7 +53,6 @@ const MapContainer: React.FC = () => {
   const setupMapLayers = () => {
     if (!map.current) return;
 
-    // Source pentru linii
     map.current.addSource('connections', {
       type: 'geojson',
       data: {
@@ -63,7 +61,6 @@ const MapContainer: React.FC = () => {
       }
     });
 
-    // Glow layer
     map.current.addLayer({
       id: 'connection-glow',
       type: 'line',
@@ -76,7 +73,6 @@ const MapContainer: React.FC = () => {
       }
     });
 
-    // Main line layer
     map.current.addLayer({
       id: 'connection-lines',
       type: 'line',
@@ -92,13 +88,11 @@ const MapContainer: React.FC = () => {
   const startTracking = () => {
     console.log('Starting GPS tracking...');
     
-    // Direct set position in Bucharest for testing
     const testPosition = {
       lat: 44.4268 + (Math.random() - 0.5) * 0.01,
       lng: 26.1025 + (Math.random() - 0.5) * 0.01
     };
     
-    // Track immediately
     if (channel.current) {
       channel.current.track({
         user_id: userId.current,
@@ -109,7 +103,6 @@ const MapContainer: React.FC = () => {
       });
     }
 
-    // Also try GPS
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -134,56 +127,54 @@ const MapContainer: React.FC = () => {
     }
   };
 
-const setupRealtime = () => {
-  console.log('Setting up realtime...');
-  
-  // Add static test bot immediately
-  const testBot = {
-    user_id: 'bot-test-static',
-    color: '#ff00ff',
-    position: {
-      lat: 44.4268,
-      lng: 26.1025
-    }
-  };
-  addUserToMap(testBot);
-  setUsers(prev => ({ ...prev, [testBot.user_id]: testBot }));
-  
-  // Add yourself immediately
-  const myPosition = {
-    user_id: userId.current,
-    color: '#00ff00',
-    position: {
-      lat: 44.4268 + 0.005,
-      lng: 26.1025 + 0.005
-    }
-  };
-  addUserToMap(myPosition);
-  setUsers(prev => ({ ...prev, [myPosition.user_id]: myPosition }));
-  
-  channel.current = supabase.channel('online-users');
-  
-  channel.current
-    .on('presence', { event: 'sync' }, () => {
-      console.log('Presence sync');
-      const state = channel.current.presenceState();
-      console.log('Presence state:', state);
-    })
-    .subscribe((status) => {
-      console.log('Channel status:', status);
-    });
-};
-        
+  const setupRealtime = () => {
+    console.log('Setting up realtime...');
+    
+    const testBot = {
+      user_id: 'bot-test-static',
+      color: '#ff00ff',
+      position: {
+        lat: 44.4268,
+        lng: 26.1025
+      }
+    };
+    addUserToMap(testBot);
+    setUsers(prev => ({ ...prev, [testBot.user_id]: testBot }));
+    
+    const myPosition = {
+      user_id: userId.current,
+      color: '#00ff00',
+      position: {
+        lat: 44.4268 + 0.005,
+        lng: 26.1025 + 0.005
+      }
+    };
+    addUserToMap(myPosition);
+    setUsers(prev => ({ ...prev, [myPosition.user_id]: myPosition }));
+    
+    channel.current = supabase.channel('online-users');
+    
+    channel.current
+      .on('presence', { event: 'sync' }, () => {
+        console.log('Presence sync');
+        const state = channel.current.presenceState();
+        console.log('Presence state:', state);
+        const allUsers = {};
+        Object.entries(state).forEach(([key, presences]) => {
+          presences.forEach((presence: User) => {
+            allUsers[presence.user_id] = presence;
+          });
+        });
         setUsers(allUsers);
       })
-      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
         console.log('User joined:', newPresences);
         newPresences.forEach((presence: User) => {
           addUserToMap(presence);
           setUsers(prev => ({ ...prev, [presence.user_id]: presence }));
         });
       })
-      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
         console.log('User left:', leftPresences);
         leftPresences.forEach((presence: User) => {
           if (markers.current[presence.user_id]) {
@@ -200,7 +191,6 @@ const setupRealtime = () => {
       .subscribe(async (status) => {
         console.log('Channel status:', status);
         if (status === 'SUBSCRIBED') {
-          // Try tracking again after subscribe
           const testPosition = {
             lat: 44.4268 + (Math.random() - 0.5) * 0.01,
             lng: 26.1025 + (Math.random() - 0.5) * 0.01
@@ -219,12 +209,10 @@ const setupRealtime = () => {
     if (!map.current) return;
     console.log('Adding user to map:', user);
 
-    // Remove existing marker if exists
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].remove();
     }
 
-    // Create marker element
     const el = document.createElement('div');
     el.className = 'user-marker';
     el.style.width = '24px';
@@ -233,23 +221,19 @@ const setupRealtime = () => {
     el.style.border = '2px solid #fff';
     el.style.cursor = 'pointer';
     
-    // Special style for current user
     if (user.user_id === userId.current) {
       el.style.background = '#00ff00';
       el.style.boxShadow = '0 0 30px #00ff00';
     }
-    // Special style for bots
     else if (user.user_id.startsWith('bot-')) {
       el.style.background = '#ff00ff';
       el.style.boxShadow = '0 0 30px #ff00ff';
     }
-    // Other users
     else {
       el.style.background = user.color || '#00ffff';
       el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
     }
 
-    // Create marker
     const marker = new mapboxgl.Marker(el)
       .setLngLat([user.position.lng, user.position.lat])
       .setPopup(new mapboxgl.Popup().setHTML(`
@@ -262,7 +246,6 @@ const setupRealtime = () => {
     markers.current[user.user_id] = marker;
   };
 
-  // Update connections when users change
   useEffect(() => {
     if (!map.current) return;
     
@@ -273,7 +256,6 @@ const setupRealtime = () => {
 
     const features = [];
     
-    // Create connections between all users
     for (let i = 0; i < userList.length; i++) {
       for (let j = i + 1; j < userList.length; j++) {
         features.push({
