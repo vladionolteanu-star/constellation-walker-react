@@ -6,6 +6,7 @@ import LoadingScreen from './components/UI/LoadingScreen'
 import { useUserStore } from './store/userStore'
 import { useSupabaseRealtime } from './hooks/useSupabaseRealtime'
 import { useGeolocation } from './hooks/useGeolocation'
+import { botSystem } from './utils/botSystem'
 
 function App() {
   const { isLoading, currentUser, initializeUser } = useUserStore()
@@ -25,9 +26,24 @@ function App() {
         const locationGranted = await requestPermission()
         if (locationGranted) {
           startRealtime()
+          
+          // ACTIVEAZĂ BOȚII PENTRU TESTARE
+          // Comentează sau șterge această linie în producție
+          if (window.location.hostname === 'localhost' || window.location.hostname.includes('vercel')) {
+            setTimeout(() => {
+              botSystem.createBots(20)
+            }, 2000)
+          }
         }
       }
       setupApp()
+    }
+
+    // Cleanup la unmount
+    return () => {
+      if (window.location.hostname === 'localhost' || window.location.hostname.includes('vercel')) {
+        botSystem.cleanup()
+      }
     }
   }, [currentUser, isLoading, requestPermission, startRealtime])
 
