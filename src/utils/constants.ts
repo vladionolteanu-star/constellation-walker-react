@@ -12,7 +12,7 @@ export const STAR_COLORS = [
   '#F472B6'  // Pink
 ]
 
-export const CONNECTION_DISTANCE = 200000 // meters
+export const CONNECTION_DISTANCE = 500000 // meters
 export const MAX_CONNECTIONS = 7
 export const POSITION_UPDATE_INTERVAL = 3000 // ms
 export const STATIONARY_TIME = 5000 // ms before showing echo button
