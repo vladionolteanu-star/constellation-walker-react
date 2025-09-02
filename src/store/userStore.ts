@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { User, Position } from '../types/user.types'
 import { STAR_COLORS } from '../utils/constants'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
 interface UserStore {
   currentUser: User | null
