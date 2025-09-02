@@ -14,7 +14,10 @@ export default function AppLayout() {
     >
       {/* Map Container */}
       <MapContainer />
-      
+      import DebugPanel from '../UI/DebugPanel'
+
+// În return, după <MapContainer />:
+<DebugPanel />
       {/* Top UI */}
       <div className="absolute top-0 left-0 right-0 z-50 pointer-events-none">
         <div className="flex justify-center pt-safe-top pt-4">
