@@ -12,8 +12,9 @@ const humanEvolutionStages = [
 export default function LoadingScreen() {
   const prefersReducedMotion = useReducedMotion();
 
-  // animațiile durează max ~3 secunde
-  const animationDuration = prefersReducedMotion ? 0 : 3;
+  // animațiile cosmice ~3s, evoluția umană ~6s
+  const cosmicDuration = prefersReducedMotion ? 0 : 3;
+  const evolutionDuration = prefersReducedMotion ? 0 : 6;
   const transitionEase = prefersReducedMotion ? "linear" : "easeInOut";
 
   return (
@@ -26,7 +27,7 @@ export default function LoadingScreen() {
       role="status"
       aria-label="Loading"
     >
-      {/* Big Bang Core */}
+      {/* Big Bang */}
       <motion.div
         className="absolute inset-0 flex items-center justify-center"
         initial={{ scale: 0, opacity: 1, rotate: 0 }}
@@ -35,7 +36,7 @@ export default function LoadingScreen() {
           opacity: [1, 0.9, 0],
           rotate: prefersReducedMotion ? 0 : 360,
         }}
-        transition={{ duration: animationDuration, ease: transitionEase }}
+        transition={{ duration: cosmicDuration, ease: transitionEase }}
       >
         <div
           className="w-64 h-64 rounded-full"
@@ -64,7 +65,7 @@ export default function LoadingScreen() {
           initial={{ scale: 0, opacity: 1 }}
           animate={{ scale: prefersReducedMotion ? 1 : 20, opacity: 0 }}
           transition={{
-            duration: animationDuration,
+            duration: cosmicDuration,
             delay: i * 0.25,
             ease: transitionEase,
           }}
@@ -86,7 +87,7 @@ export default function LoadingScreen() {
         {[...Array(80)].map((_, i) => {
           const angle = (i / 80) * Math.PI * 2 + Math.random() * 0.2;
           const distance = 700 + Math.random() * 500;
-          const duration = animationDuration * (1 + Math.random() * 0.3);
+          const duration = cosmicDuration * (1 + Math.random() * 0.3);
           return (
             <motion.div
               key={i}
@@ -118,39 +119,13 @@ export default function LoadingScreen() {
         })}
       </div>
 
-      {/* Nebula Clouds */}
-      {[...Array(3)].map((_, i) => (
-        <motion.div
-          key={`nebula-${i}`}
-          className="absolute inset-0"
-          initial={{ opacity: 0, scale: 0.5, rotate: i * 120 }}
-          animate={{
-            opacity: 0.6,
-            scale: prefersReducedMotion ? 0.5 : 1.3,
-            rotate: prefersReducedMotion ? i * 120 : i * 120 + 180,
-          }}
-          transition={{
-            duration: animationDuration,
-            delay: 0.4 + i * 0.3,
-            ease: transitionEase,
-          }}
-          style={{
-            background: `radial-gradient(circle at ${50 + Math.random() * 20 - 10}% ${
-              50 + Math.random() * 20 - 10
-            }%, rgba(138,43,226,0.6) 0%, rgba(0,191,255,0.5) 50%, transparent 80%)`,
-            filter: "blur(25px)",
-          }}
-        />
-      ))}
-
-      {/* Human Evolution */}
+      {/* Human Evolution – secvențial, vizibil */}
       <motion.div
         className="relative z-20 flex items-center justify-center"
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.3, duration: 0.6 }}
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 1 }}
       >
-        <svg width="160" height="160" viewBox="0 0 100 100">
+        <svg width="180" height="180" viewBox="0 0 100 100">
           {humanEvolutionStages.map((stage, i) => (
             <motion.path
               key={stage.name}
@@ -158,31 +133,31 @@ export default function LoadingScreen() {
               fill={stage.fill}
               initial={{ scale: 0, opacity: 0 }}
               animate={{
-                scale: prefersReducedMotion ? 1 : [0, 1.4, 1, 0],
+                scale: prefersReducedMotion ? 1 : [0, 1.2, 1, 0],
                 opacity: [0, 1, 1, 0],
                 rotate: prefersReducedMotion ? 0 : [0, 10, -10, 0],
               }}
               transition={{
-                duration: animationDuration / humanEvolutionStages.length,
-                delay: i * (animationDuration / humanEvolutionStages.length),
+                duration: 1, // fiecare etapă durează 1 sec
+                delay: i * 1, // începe una după alta
                 ease: transitionEase,
               }}
               style={{
-                filter: `drop-shadow(0 0 12px ${stage.fill})`,
+                filter: `drop-shadow(0 0 14px ${stage.fill})`,
               }}
             />
           ))}
         </svg>
       </motion.div>
 
-      {/* Central Logo */}
+      {/* Central Logo – apare după ce se termină evoluția */}
       <motion.div
         className="relative z-10 text-center"
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{
-          delay: 2.2,
-          duration: 0.6,
+          delay: evolutionDuration - 1,
+          duration: 0.8,
           type: "spring",
           damping: 12,
         }}
@@ -192,16 +167,10 @@ export default function LoadingScreen() {
           animate={{
             rotate: prefersReducedMotion ? 0 : 360,
             scale: prefersReducedMotion ? 1 : [1, 1.2, 1],
-            boxShadow: [
-              "0 0 80px #00D4FF",
-              "0 0 120px #00D4FF",
-              "0 0 80px #00D4FF",
-            ],
           }}
           transition={{
-            rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-            scale: { duration: animationDuration / 2, repeat: Infinity },
-            boxShadow: { duration: animationDuration / 2, repeat: Infinity },
+            rotate: { duration: 15, repeat: Infinity, ease: "linear" },
+            scale: { duration: 2, repeat: Infinity },
           }}
           style={{
             background: `radial-gradient(circle at 40% 40%, #FFD700, #00D4FF 70%, transparent 90%)`,
@@ -211,7 +180,7 @@ export default function LoadingScreen() {
           className="text-5xl font-bold mb-3 bg-gradient-to-r from-orange-500 via-cyan-400 to-purple-500 bg-clip-text text-transparent"
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 2.4 }}
+          transition={{ delay: evolutionDuration - 0.8 }}
         >
           CONSTELLATION
         </motion.h1>
@@ -220,44 +189,13 @@ export default function LoadingScreen() {
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 1, 0.9, 1] }}
           transition={{
-            delay: 2.6,
+            delay: evolutionDuration - 0.5,
             duration: 0.4,
           }}
         >
           WALKER
         </motion.p>
       </motion.div>
-
-      {/* Starfield */}
-      <motion.div
-        className="absolute inset-0 pointer-events-none"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5, duration: 1 }}
-      >
-        {[...Array(120)].map((_, i) => (
-          <motion.div
-            key={`star-${i}`}
-            className="absolute w-1 h-1 bg-white rounded-full"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-            }}
-            initial={{ opacity: 0, scale: 0 }}
-            animate={{
-              opacity: prefersReducedMotion ? 0.5 : [0, Math.random() * 0.8 + 0.2, 0],
-              scale: prefersReducedMotion ? 0.5 : [0, Math.random() * 2 + 0.5, 0],
-            }}
-            transition={{
-              delay: 0.7 + Math.random() * 0.6,
-              duration: 1.5 + Math.random(),
-              repeat: Infinity,
-              repeatType: "reverse",
-            }}
-          />
-        ))}
-      </motion.div>
     </motion.div>
   );
 }
-
