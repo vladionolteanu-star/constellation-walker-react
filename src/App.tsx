@@ -1,16 +1,3 @@
-import SupabaseStatus from 'src/components/SupabaseStatus'; // ajustează calea după cum ai structura folderele
-
-function App() {
-  return (
-    <div>
-      <SupabaseStatus />
-      {/* restul aplicației */}
-    </div>
-  );
-}
-
-export default App;
-
 import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AnimatePresence } from 'framer-motion'
@@ -21,9 +8,12 @@ import { useSupabaseRealtime } from './hooks/useSupabaseRealtime'
 import { useGeolocation } from './hooks/useGeolocation'
 import { botSystem } from './utils/botSystem'
 
+// component pentru debugging / status conexiune Supabase
+import SupabaseStatus from './components/SupabaseStatus'
+
 function App() {
   const { isLoading, currentUser, initializeUser } = useUserStore()
-  const { startRealtime } = useSupabaseRealtime()
+  const { startRealtime, stopRealtime } = useSupabaseRealtime()
   const { requestPermission } = useGeolocation()
 
   useEffect(() => {
@@ -39,10 +29,12 @@ function App() {
         const locationGranted = await requestPermission()
         if (locationGranted) {
           startRealtime()
-          
-          // ACTIVEAZĂ BOȚII PENTRU TESTARE
-          // Comentează sau șterge această linie în producție
-          if (window.location.hostname === 'localhost' || window.location.hostname.includes('vercel')) {
+
+          // Activează boți pentru testare doar în dev
+          if (
+            window.location.hostname === 'localhost' ||
+            window.location.hostname.includes('vercel')
+          ) {
             setTimeout(() => {
               botSystem.createBots(20)
             }, 2000)
@@ -54,14 +46,21 @@ function App() {
 
     // Cleanup la unmount
     return () => {
-      if (window.location.hostname === 'localhost' || window.location.hostname.includes('vercel')) {
+      stopRealtime()
+      if (
+        window.location.hostname === 'localhost' ||
+        window.location.hostname.includes('vercel')
+      ) {
         botSystem.cleanup()
       }
     }
-  }, [currentUser, isLoading, requestPermission, startRealtime])
+  }, [currentUser, isLoading, requestPermission, startRealtime, stopRealtime])
 
   return (
-    <>
+    <div>
+      {/* status bar pentru debugging conexiune Supabase */}
+      <SupabaseStatus />
+
       <AnimatePresence mode="wait">
         {isLoading || !currentUser ? (
           <LoadingScreen key="loading" />
@@ -69,7 +68,7 @@ function App() {
           <AppLayout key="app" />
         )}
       </AnimatePresence>
-      
+
       <Toaster
         position="top-center"
         toastOptions={{
@@ -81,11 +80,11 @@ function App() {
             borderRadius: '12px',
             backdropFilter: 'blur(20px)',
             fontSize: '14px',
-            fontWeight: '500'
-          }
+            fontWeight: '500',
+          },
         }}
       />
-    </>
+    </div>
   )
 }
 
