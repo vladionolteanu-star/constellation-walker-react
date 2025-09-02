@@ -74,3 +74,6 @@ export const EFFECTS = {
     other: 6
   }
 }
+export function generateStarColor() {
+  return STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)];
+}
