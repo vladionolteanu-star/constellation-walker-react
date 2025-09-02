@@ -1,20 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Folosește variabilele de mediu cu fallback
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://wajgxfgeumpztjyafyem.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indhamd4ZmdldW1wenRqeWFmeWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU0MDcxMDYsImV4cCI6MjA1MDk4MzEwNn0.qGu5u8ZqeEXYHwAYA4iARW0L0BB8XtwwZpxIKMp6Afc'
+// Direct values - no environment variables
+const SUPABASE_URL = 'https://wajgxfgeumpztjyafyem.supabase.co'
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indhamd4ZmdldW1wenRqeWFmeWVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU0MDcxMDYsImV4cCI6MjA1MDk4MzEwNn0.qGu5u8ZqeEXYHwAYA4iARW0L0BB8XtwwZpxIKMp6Afc'
 
-// Debug log pentru verificare
-console.log('🔑 Supabase URL:', SUPABASE_URL)
-console.log('🔑 Key exists:', !!SUPABASE_ANON_KEY)
-console.log('🔑 Key length:', SUPABASE_ANON_KEY?.length)
-
-// Verifică că avem valori valide
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('❌ CRITICAL: Supabase credentials missing!')
-  console.error('URL:', SUPABASE_URL)
-  console.error('Key:', SUPABASE_ANON_KEY)
-}
+console.log('🔑 Initializing Supabase with URL:', SUPABASE_URL)
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   realtime: {
@@ -28,17 +18,17 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   }
 })
 
-// Test connection immediately
+// Test connection
 supabase.from('users').select('count').then(({ data, error }) => {
   if (error) {
-    console.error('❌ Supabase connection error:', error)
+    console.error('❌ Supabase connection failed:', error)
   } else {
-    console.log('✅ Supabase connected successfully')
+    console.log('✅ Supabase connected successfully!')
   }
 })
 
 export const ensureUserExists = async (userId: string, colorHash: string) => {
-  console.log('🔵 SAVING USER:', userId)
+  console.log('🔵 Creating/updating user:', userId)
   
   try {
     const { data, error } = await supabase
@@ -53,20 +43,20 @@ export const ensureUserExists = async (userId: string, colorHash: string) => {
       .single()
 
     if (error) {
-      console.error('❌ USER SAVE ERROR:', error)
+      console.error('User save error:', error)
       return { id: userId, color_hash: colorHash }
     }
 
-    console.log('✅ User saved:', data)
+    console.log('✅ User saved successfully')
     return data || { id: userId, color_hash: colorHash }
   } catch (error) {
-    console.error('❌ ensureUserExists error:', error)
+    console.error('ensureUserExists error:', error)
     return { id: userId, color_hash: colorHash }
   }
 }
 
 export const updateUserPosition = async (userId: string, position: { lat: number; lng: number }) => {
-  console.log('📍 Updating position for user:', userId, position)
+  console.log('📍 Updating position:', userId, position)
   
   try {
     const { data, error } = await supabase
@@ -80,14 +70,34 @@ export const updateUserPosition = async (userId: string, position: { lat: number
       .select()
 
     if (error) {
-      console.error('❌ Error updating position:', error)
+      console.error('Position update error:', error)
       return { error }
     }
 
-    console.log('✅ Position updated:', data)
+    console.log('✅ Position updated')
     return { error: null, data }
   } catch (error) {
-    console.error('❌ updateUserPosition error:', error)
+    console.error('updateUserPosition error:', error)
     return { error }
+  }
+}
+
+export const getUsersInArea = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('active_positions')
+      .select('*')
+      .gte('updated_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+    
+    if (error) {
+      console.error('Error getting users:', error)
+      return []
+    }
+
+    console.log(`Found ${data?.length || 0} active users`)
+    return data || []
+  } catch (error) {
+    console.error('getUsersInArea error:', error)
+    return []
   }
 }
