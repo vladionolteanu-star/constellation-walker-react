@@ -25,15 +25,21 @@ const MapContainer: React.FC = () => {
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
+    // Initialize map focused on Bucharest
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
-      center: [26.1025, 44.4268],
-      zoom: 13,
-      pitch: 45
+      center: [26.1025, 44.4268], // București
+      zoom: 14,
+      pitch: 45,
+      maxBounds: [
+        [25.8, 44.2], // SW bounds pentru București
+        [26.4, 44.6]  // NE bounds pentru București
+      ]
     });
 
     map.current.on('load', () => {
+      console.log('Map loaded');
       setupMapLayers();
       startTracking();
       setupRealtime();
@@ -84,15 +90,35 @@ const MapContainer: React.FC = () => {
   };
 
   const startTracking = () => {
+    console.log('Starting GPS tracking...');
+    
+    // Direct set position in Bucharest for testing
+    const testPosition = {
+      lat: 44.4268 + (Math.random() - 0.5) * 0.01,
+      lng: 26.1025 + (Math.random() - 0.5) * 0.01
+    };
+    
+    // Track immediately
+    if (channel.current) {
+      channel.current.track({
+        user_id: userId.current,
+        color: '#00ff00',
+        position: testPosition
+      }).then(() => {
+        console.log('User tracked:', userId.current);
+      });
+    }
+
+    // Also try GPS
     if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(
+      navigator.geolocation.getCurrentPosition(
         async (position) => {
+          console.log('GPS position:', position.coords);
           const userPosition = {
             lat: position.coords.latitude,
             lng: position.coords.longitude
           };
           
-          // Track in presence channel
           if (channel.current) {
             await channel.current.track({
               user_id: userId.current,
@@ -101,38 +127,23 @@ const MapContainer: React.FC = () => {
             });
           }
         },
-        async (error) => {
+        (error) => {
           console.error('GPS Error:', error);
-          // Fallback - poziție random în București
-          const userPosition = {
-            lat: 44.4268 + (Math.random() - 0.5) * 0.05,
-            lng: 26.1025 + (Math.random() - 0.5) * 0.05
-          };
-          
-          // Track in presence channel
-          if (channel.current) {
-            await channel.current.track({
-              user_id: userId.current,
-              color: '#00ff00',
-              position: userPosition
-            });
-          }
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 5000
         }
       );
     }
   };
 
   const setupRealtime = () => {
+    console.log('Setting up realtime...');
     channel.current = supabase.channel('online-users');
     
     channel.current
       .on('presence', { event: 'sync' }, () => {
+        console.log('Presence sync');
         const state = channel.current.presenceState();
+        console.log('Presence state:', state);
+        
         const allUsers: Record<string, User> = {};
         
         Object.keys(state).forEach(key => {
@@ -147,12 +158,14 @@ const MapContainer: React.FC = () => {
         setUsers(allUsers);
       })
       .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('User joined:', newPresences);
         newPresences.forEach((presence: User) => {
           addUserToMap(presence);
           setUsers(prev => ({ ...prev, [presence.user_id]: presence }));
         });
       })
       .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('User left:', leftPresences);
         leftPresences.forEach((presence: User) => {
           if (markers.current[presence.user_id]) {
             markers.current[presence.user_id].remove();
@@ -165,11 +178,27 @@ const MapContainer: React.FC = () => {
           });
         });
       })
-      .subscribe();
+      .subscribe(async (status) => {
+        console.log('Channel status:', status);
+        if (status === 'SUBSCRIBED') {
+          // Try tracking again after subscribe
+          const testPosition = {
+            lat: 44.4268 + (Math.random() - 0.5) * 0.01,
+            lng: 26.1025 + (Math.random() - 0.5) * 0.01
+          };
+          
+          await channel.current.track({
+            user_id: userId.current,
+            color: '#00ff00',
+            position: testPosition
+          });
+        }
+      });
   };
 
   const addUserToMap = (user: User) => {
     if (!map.current) return;
+    console.log('Adding user to map:', user);
 
     // Remove existing marker if exists
     if (markers.current[user.user_id]) {
@@ -184,8 +213,6 @@ const MapContainer: React.FC = () => {
     el.style.borderRadius = '50%';
     el.style.border = '2px solid #fff';
     el.style.cursor = 'pointer';
-    el.style.background = user.color || '#00ffff';
-    el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
     
     // Special style for current user
     if (user.user_id === userId.current) {
@@ -196,6 +223,11 @@ const MapContainer: React.FC = () => {
     else if (user.user_id.startsWith('bot-')) {
       el.style.background = '#ff00ff';
       el.style.boxShadow = '0 0 30px #ff00ff';
+    }
+    // Other users
+    else {
+      el.style.background = user.color || '#00ffff';
+      el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
     }
 
     // Create marker
@@ -216,6 +248,8 @@ const MapContainer: React.FC = () => {
     if (!map.current) return;
     
     const userList = Object.values(users);
+    console.log('Updating connections for users:', userList.length);
+    
     if (userList.length < 2) return;
 
     const features = [];
