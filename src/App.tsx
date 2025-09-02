@@ -1,3 +1,16 @@
+import SupabaseStatus from 'src/components/SupabaseStatus'; // ajustează calea după cum ai structura folderele
+
+function App() {
+  return (
+    <div>
+      <SupabaseStatus />
+      {/* restul aplicației */}
+    </div>
+  );
+}
+
+export default App;
+
 import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AnimatePresence } from 'framer-motion'
