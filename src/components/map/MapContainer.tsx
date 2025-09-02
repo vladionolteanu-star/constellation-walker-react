@@ -20,96 +20,30 @@ const MapContainer: React.FC = () => {
   const [users, setUsers] = useState<Record<string, User>>({});
   const markers = useRef<Record<string, mapboxgl.Marker>>({});
   const userId = useRef(`user-${Date.now()}`);
+  const channel = useRef<any>(null);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    // Initialize map
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
-      center: [26.1025, 44.4268], // București centru
+      center: [26.1025, 44.4268],
       zoom: 13,
-      pitch: 45
+      pitch: 45,
+      antialias: false, // Performance
+      preserveDrawingBuffer: false // Performance
     });
 
     map.current.on('load', () => {
-      console.log('Map loaded');
       setupMapLayers();
-      
-      // Add test bot immediately
-      const testBot: User = {
-        user_id: 'bot-test',
-        color: '#ff00ff',
-        position: {
-          lat: 44.4268,
-          lng: 26.1025
-        }
-      };
-      
-      // Add you near the bot
-      const myUser: User = {
-        user_id: userId.current,
-        color: '#00ff00',
-        position: {
-          lat: 44.4280,  // Slightly north
-          lng: 26.1040   // Slightly east
-        }
-      };
-      
-      // Add both to map
-      addUserToMap(testBot);
-      addUserToMap(myUser);
-      
-      // Store in state
-      setUsers({
-        [testBot.user_id]: testBot,
-        [myUser.user_id]: myUser
-      });
-      
-      // Center map between both markers
-      map.current?.flyTo({
-        center: [26.1032, 44.4274],
-        zoom: 15,
-        duration: 2000
-      });
-      
-      // Get real GPS position
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            console.log('Got GPS:', position.coords);
-            // Update your position
-            const updatedUser: User = {
-              user_id: userId.current,
-              color: '#00ff00',
-              position: {
-                lat: position.coords.latitude,
-                lng: position.coords.longitude
-              }
-            };
-            
-            addUserToMap(updatedUser);
-            setUsers(prev => ({
-              ...prev,
-              [updatedUser.user_id]: updatedUser
-            }));
-            
-            // Center on your real position
-            map.current?.flyTo({
-              center: [position.coords.longitude, position.coords.latitude],
-              zoom: 15,
-              duration: 2000
-            });
-          },
-          (error) => {
-            console.log('GPS error, using default position');
-          }
-        );
-      }
+      addStaticBot();
+      initializeUser();
+      setupRealtime();
     });
 
     return () => {
+      channel.current?.unsubscribe();
       map.current?.remove();
     };
   }, []);
@@ -117,7 +51,7 @@ const MapContainer: React.FC = () => {
   const setupMapLayers = () => {
     if (!map.current) return;
 
-    // Source pentru linii
+    // Neural network style connections
     map.current.addSource('connections', {
       type: 'geojson',
       data: {
@@ -126,82 +60,188 @@ const MapContainer: React.FC = () => {
       }
     });
 
-    // Glow layer
+    // Multiple glow layers for neural effect
     map.current.addLayer({
-      id: 'connection-glow',
+      id: 'connection-outer-glow',
       type: 'line',
       source: 'connections',
       paint: {
         'line-color': '#00ffff',
-        'line-width': 12,
-        'line-opacity': 0.2,
-        'line-blur': 12
+        'line-width': 20,
+        'line-opacity': 0.1,
+        'line-blur': 20
       }
     });
 
-    // Main line layer
     map.current.addLayer({
-      id: 'connection-lines',
+      id: 'connection-mid-glow',
       type: 'line',
       source: 'connections',
       paint: {
         'line-color': '#00ffff',
-        'line-width': 2,
-        'line-opacity': 0.8
+        'line-width': 8,
+        'line-opacity': 0.3,
+        'line-blur': 8
       }
     });
+
+    map.current.addLayer({
+      id: 'connection-core',
+      type: 'line',
+      source: 'connections',
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': 1,
+        'line-opacity': 0.9
+      }
+    });
+  };
+
+  const addStaticBot = () => {
+    const bot: User = {
+      user_id: 'bot-nebula',
+      color: '#ff00ff',
+      position: { lat: 44.4268, lng: 26.1025 }
+    };
+    
+    addUserToMap(bot);
+    setUsers(prev => ({ ...prev, [bot.user_id]: bot }));
+  };
+
+  const initializeUser = () => {
+    // Start with default position
+    const defaultUser: User = {
+      user_id: userId.current,
+      color: '#00ff00',
+      position: { lat: 44.428, lng: 26.104 }
+    };
+    
+    addUserToMap(defaultUser);
+    setUsers(prev => ({ ...prev, [defaultUser.user_id]: defaultUser }));
+
+    // Try real GPS
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const updatedUser: User = {
+            user_id: userId.current,
+            color: '#00ff00',
+            position: {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            }
+          };
+          
+          updateUserPosition(updatedUser);
+          
+          // Broadcast to others
+          if (channel.current) {
+            channel.current.track(updatedUser);
+          }
+        },
+        (error) => {
+          console.log('Using default position');
+          // Broadcast default position
+          if (channel.current) {
+            channel.current.track(defaultUser);
+          }
+        }
+      );
+    }
+  };
+
+  const setupRealtime = () => {
+    channel.current = supabase.channel('online-users');
+    
+    channel.current
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.current.presenceState();
+        
+        Object.keys(state).forEach(key => {
+          const presences = state[key];
+          if (presences?.[0] && presences[0].user_id !== userId.current) {
+            const user = presences[0];
+            addUserToMap(user);
+            setUsers(prev => ({ ...prev, [user.user_id]: user }));
+          }
+        });
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        newPresences.forEach((user: User) => {
+          if (user.user_id !== userId.current) {
+            addUserToMap(user);
+            setUsers(prev => ({ ...prev, [user.user_id]: user }));
+          }
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+        leftPresences.forEach((user: User) => {
+          removeUserFromMap(user.user_id);
+          setUsers(prev => {
+            const newUsers = { ...prev };
+            delete newUsers[user.user_id];
+            return newUsers;
+          });
+        });
+      })
+      .subscribe();
   };
 
   const addUserToMap = (user: User) => {
     if (!map.current) return;
     
-    // Remove existing marker
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].remove();
     }
 
-    // Create visible marker element with fixed size
     const el = document.createElement('div');
-    el.style.width = '30px';
-    el.style.height = '30px';
+    el.style.width = '25px';
+    el.style.height = '25px';
     el.style.borderRadius = '50%';
-    el.style.border = '3px solid #ffffff';
-    el.style.cursor = 'pointer';
+    el.style.border = '2px solid rgba(255,255,255,0.9)';
     el.style.position = 'relative';
     
-    // Colors based on user type
+    // Pulse animation
+    el.style.animation = 'pulse 2s infinite';
+    
     if (user.user_id === userId.current) {
-      // You - green
       el.style.backgroundColor = '#00ff00';
-      el.style.boxShadow = '0 0 40px #00ff00, 0 0 60px #00ff00';
+      el.style.boxShadow = '0 0 30px #00ff00';
     } else if (user.user_id.includes('bot')) {
-      // Bot - magenta
       el.style.backgroundColor = '#ff00ff';
-      el.style.boxShadow = '0 0 40px #ff00ff, 0 0 60px #ff00ff';
+      el.style.boxShadow = '0 0 30px #ff00ff';
     } else {
-      // Other users - cyan
-      el.style.backgroundColor = '#00ffff';
-      el.style.boxShadow = '0 0 40px #00ffff, 0 0 60px #00ffff';
+      el.style.backgroundColor = user.color || '#00ffff';
+      el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
     }
 
-    // Create marker
     const marker = new mapboxgl.Marker({
       element: el,
       anchor: 'center'
     })
       .setLngLat([user.position.lng, user.position.lat])
-      .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`
-        <div style="background: black; color: #00ffff; padding: 10px; font-family: monospace; border: 1px solid #00ffff;">
-          ${user.user_id.includes('bot') ? '🤖 Bot' : user.user_id === userId.current ? '⭐ You' : '👤 User'}
-        </div>
-      `))
       .addTo(map.current);
 
     markers.current[user.user_id] = marker;
-    console.log('Added marker for:', user.user_id, 'at', user.position);
   };
 
-  // Update connections when users change
+  const updateUserPosition = (user: User) => {
+    if (markers.current[user.user_id]) {
+      markers.current[user.user_id].setLngLat([user.position.lng, user.position.lat]);
+    } else {
+      addUserToMap(user);
+    }
+    setUsers(prev => ({ ...prev, [user.user_id]: user }));
+  };
+
+  const removeUserFromMap = (userId: string) => {
+    if (markers.current[userId]) {
+      markers.current[userId].remove();
+      delete markers.current[userId];
+    }
+  };
+
+  // Update neural connections
   useEffect(() => {
     if (!map.current) return;
     
@@ -210,7 +250,7 @@ const MapContainer: React.FC = () => {
 
     const features = [];
     
-    // Create connections between all users
+    // Connect all users (triangle, square, etc)
     for (let i = 0; i < userList.length; i++) {
       for (let j = i + 1; j < userList.length; j++) {
         features.push({
@@ -236,10 +276,15 @@ const MapContainer: React.FC = () => {
   }, [users]);
 
   return (
-    <div 
-      ref={mapContainer} 
-      className="w-full h-screen bg-black"
-    />
+    <>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.2); opacity: 0.8; }
+        }
+      `}</style>
+      <div ref={mapContainer} className="w-full h-screen bg-black" />
+    </>
   );
 };
 
