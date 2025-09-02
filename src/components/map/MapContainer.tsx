@@ -1,251 +1,246 @@
-import { useEffect, useRef, useState } from 'react'
-import Map, { Marker, MapRef } from 'react-map-gl'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Navigation, Navigation2 } from 'lucide-react'
-import { useMapStore } from '../../store/mapStore'
-import { useUserStore } from '../../store/userStore'
-import UserMarker from './UserMarker'
-import ConstellationLines from './ConstellationLines'
-import EchoMarker from '../Echo/EchoMarker'
-import { MAPBOX_TOKEN, MAPBOX_STYLE } from '../../utils/constants'
+import React, { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import { supabase } from '../config/supabase';
+import 'mapbox-gl/dist/mapbox-gl.css';
 
-export default function MapContainer() {
-  const mapRef = useRef<MapRef>(null)
-  const { viewport, setViewport, markers } = useMapStore()
-  const { currentUser, otherUsers } = useUserStore()
-  const [isFollowing, setIsFollowing] = useState(true)
-  const [showReturnButton, setShowReturnButton] = useState(false)
+mapboxgl.accessToken = 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g';
 
-  // Fly to user position when first loaded
+interface User {
+  id: string;
+  lat: number;
+  lng: number;
+  name: string;
+  isBot?: boolean;
+  isCurrentUser?: boolean;
+}
+
+const MapContainer: React.FC = () => {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const [users, setUsers] = useState<Record<string, User>>({});
+  const markers = useRef<Record<string, mapboxgl.Marker>>({});
+  const userId = useRef(`user-${Date.now()}-${Math.random()}`);
+
+  // Bot de test - poziție fixă București
+  const TEST_BOT: User = {
+    id: 'bot-nebula-001',
+    lat: 44.4268,
+    lng: 26.1025,
+    name: 'Nebula Bot',
+    isBot: true
+  };
+
   useEffect(() => {
-    if (currentUser?.position && mapRef.current && isFollowing) {
-      mapRef.current.flyTo({
-        center: [currentUser.position.lng, currentUser.position.lat],
-        zoom: 16,
-        pitch: 60,
-        bearing: 0,
-        duration: 2000
-      })
-    }
-  }, [currentUser?.position])
+    if (!mapContainer.current || map.current) return;
 
-  // Return to my position
-  const returnToMyPosition = () => {
-    if (currentUser?.position && mapRef.current) {
-      setIsFollowing(true)
-      setShowReturnButton(false)
-      
-      mapRef.current.flyTo({
-        center: [currentUser.position.lng, currentUser.position.lat],
-        zoom: 16,
-        pitch: 60,
-        bearing: 0,
-        duration: 1500,
-        essential: true
-      })
-    }
-  }
+    map.current = new mapboxgl.Map({
+      container: mapContainer.current,
+      style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
+      center: [26.1025, 44.4268],
+      zoom: 13,
+      pitch: 45
+    });
 
-  // Handle manual map movement
-  const handleMapMove = (evt: any) => {
-    setViewport(evt.viewState)
+    map.current.on('load', () => {
+      setupMapLayers();
+      addBot();
+      startTracking();
+      setupRealtime();
+    });
+
+    return () => {
+      map.current?.remove();
+    };
+  }, []);
+
+  const setupMapLayers = () => {
+    if (!map.current) return;
+
+    // Source pentru linii
+    map.current.addSource('connections', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: []
+      }
+    });
+
+    // Glow layer
+    map.current.addLayer({
+      id: 'connection-glow',
+      type: 'line',
+      source: 'connections',
+      paint: {
+        'line-color': '#00ffff',
+        'line-width': 12,
+        'line-opacity': 0.2,
+        'line-blur': 12
+      }
+    });
+
+    // Main line layer
+    map.current.addLayer({
+      id: 'connection-lines',
+      type: 'line',
+      source: 'connections',
+      paint: {
+        'line-color': '#00ffff',
+        'line-width': 2,
+        'line-opacity': 0.8
+      }
+    });
+  };
+
+  const addBot = () => {
+    addUserToMap(TEST_BOT);
+    setUsers(prev => ({ ...prev, [TEST_BOT.id]: TEST_BOT }));
+  };
+
+  const startTracking = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const user: User = {
+            id: userId.current,
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            name: 'You',
+            isCurrentUser: true
+          };
+          
+          addUserToMap(user);
+          setUsers(prev => ({ ...prev, [user.id]: user }));
+          broadcastPosition(user);
+        },
+        (error) => {
+          console.error('GPS Error:', error);
+          // Fallback - poziție random în București
+          const user: User = {
+            id: userId.current,
+            lat: 44.4268 + (Math.random() - 0.5) * 0.05,
+            lng: 26.1025 + (Math.random() - 0.5) * 0.05,
+            name: 'You',
+            isCurrentUser: true
+          };
+          
+          addUserToMap(user);
+          setUsers(prev => ({ ...prev, [user.id]: user }));
+          broadcastPosition(user);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 5000
+        }
+      );
+    }
+  };
+
+  const broadcastPosition = async (user: User) => {
+    try {
+      await supabase.channel('presence').send({
+        type: 'broadcast',
+        event: 'location_update',
+        payload: user
+      });
+    } catch (error) {
+      console.error('Broadcast error:', error);
+    }
+  };
+
+  const setupRealtime = () => {
+    supabase
+      .channel('presence')
+      .on('broadcast', { event: 'location_update' }, ({ payload }) => {
+        if (payload.id !== userId.current) {
+          addUserToMap(payload);
+          setUsers(prev => ({ ...prev, [payload.id]: payload }));
+        }
+      })
+      .subscribe();
+  };
+
+  const addUserToMap = (user: User) => {
+    if (!map.current) return;
+
+    // Remove existing marker if exists
+    if (markers.current[user.id]) {
+      markers.current[user.id].remove();
+    }
+
+    // Create marker element
+    const el = document.createElement('div');
+    el.className = 'user-marker';
+    el.style.width = '24px';
+    el.style.height = '24px';
+    el.style.borderRadius = '50%';
+    el.style.border = '2px solid #fff';
+    el.style.cursor = 'pointer';
     
-    // Detectează dacă user-ul a mișcat manual harta
-    if (currentUser?.position) {
-      const mapCenter = evt.viewState
-      const userLng = currentUser.position.lng
-      const userLat = currentUser.position.lat
-      
-      const distance = Math.sqrt(
-        Math.pow(mapCenter.longitude - userLng, 2) + 
-        Math.pow(mapCenter.latitude - userLat, 2)
-      )
-      
-      // Dacă harta e la mai mult de 0.001 grade de user, arată butonul
-      if (distance > 0.001) {
-        setIsFollowing(false)
-        setShowReturnButton(true)
+    if (user.isCurrentUser) {
+      el.style.background = '#00ff00';
+      el.style.boxShadow = '0 0 30px #00ff00';
+    } else if (user.isBot) {
+      el.style.background = '#ff00ff';
+      el.style.boxShadow = '0 0 30px #ff00ff';
+    } else {
+      el.style.background = '#00ffff';
+      el.style.boxShadow = '0 0 30px #00ffff';
+    }
+
+    // Create marker
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat([user.lng, user.lat])
+      .setPopup(new mapboxgl.Popup().setHTML(`
+        <div style="background: black; color: #00ffff; padding: 5px; font-family: monospace;">
+          ${user.name}
+        </div>
+      `))
+      .addTo(map.current);
+
+    markers.current[user.id] = marker;
+  };
+
+  // Update connections when users change
+  useEffect(() => {
+    if (!map.current) return;
+    
+    const userList = Object.values(users);
+    if (userList.length < 2) return;
+
+    const features = [];
+    
+    // Create connections between all users
+    for (let i = 0; i < userList.length; i++) {
+      for (let j = i + 1; j < userList.length; j++) {
+        features.push({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [userList[i].lng, userList[i].lat],
+              [userList[j].lng, userList[j].lat]
+            ]
+          }
+        });
       }
     }
-  }
+
+    const source = map.current.getSource('connections') as mapboxgl.GeoJSONSource;
+    if (source) {
+      source.setData({
+        type: 'FeatureCollection',
+        features
+      });
+    }
+  }, [users]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 1.5 }}
-      className="absolute inset-0"
-    >
-      <Map
-        ref={mapRef}
-        {...viewport}
-        onMove={handleMapMove}
-        mapboxAccessToken={MAPBOX_TOKEN}
-        style={{ width: '100%', height: '100%' }}
-        mapStyle={MAPBOX_STYLE}
-        pitchWithRotate={true}
-        dragRotate={true}
-        touchZoomRotate={true}
-        touchPitch={true}
-        attributionControl={false}
-        maxZoom={20}
-        minZoom={10}
-      >
-        {/* Constellation Lines - Render first so they appear behind markers */}
-        <ConstellationLines />
+    <div 
+      ref={mapContainer} 
+      className="w-full h-screen bg-black"
+    />
+  );
+};
 
-        {/* Current User Marker */}
-        {currentUser?.position && (
-          <UserMarker
-            user={currentUser}
-            isCurrentUser={true}
-          />
-        )}
-
-        {/* Other Users */}
-        {otherUsers.map(user => (
-          user.position && (
-            <UserMarker
-              key={user.id}
-              user={user}
-              isCurrentUser={false}
-            />
-          )
-        ))}
-
-        {/* Echo Markers */}
-        {markers.map(echo => (
-          <EchoMarker key={echo.id} echo={echo} />
-        ))}
-      </Map>
-
-      {/* Return to Position Button */}
-      <AnimatePresence>
-        {showReturnButton && (
-          <motion.button
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={{ 
-              type: "spring",
-              damping: 15,
-              stiffness: 300
-            }}
-            onClick={returnToMyPosition}
-            className="absolute bottom-32 right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)`,
-              boxShadow: `
-                0 10px 30px rgba(102, 126, 234, 0.5),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3)
-              `
-            }}
-            whileHover={{ 
-              scale: 1.1,
-              boxShadow: `
-                0 15px 40px rgba(102, 126, 234, 0.7),
-                inset 0 1px 0 rgba(255, 255, 255, 0.4)
-              `
-            }}
-            whileTap={{ scale: 0.95 }}
-          >
-            {/* Icon with glow */}
-            <motion.div
-              animate={{ 
-                rotate: [0, 360],
-              }}
-              transition={{ 
-                duration: 20,
-                repeat: Infinity,
-                ease: "linear"
-              }}
-              className="relative"
-            >
-              <Navigation2 
-                size={24} 
-                className="text-white"
-                style={{
-                  filter: 'drop-shadow(0 0 10px rgba(255, 255, 255, 0.7))'
-                }}
-              />
-            </motion.div>
-
-            {/* Pulse effect */}
-            <motion.div
-              className="absolute inset-0 rounded-full border-2 border-white/30"
-              animate={{
-                scale: [1, 1.5],
-                opacity: [0.5, 0]
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: "easeOut"
-              }}
-            />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* Zoom Controls */}
-      <div className="absolute top-1/2 -translate-y-1/2 right-4 z-40 flex flex-col gap-2">
-        {/* Zoom In */}
-        <motion.button
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.5 }}
-          onClick={() => {
-            if (mapRef.current) {
-              const currentZoom = mapRef.current.getZoom()
-              mapRef.current.zoomTo(Math.min(currentZoom + 1, 20), {
-                duration: 300
-              })
-            }
-          }}
-          className="w-12 h-12 rounded-full backdrop-blur-xl border border-white/20 text-white/80 text-xl font-light flex items-center justify-center"
-          style={{
-            background: `linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`
-          }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          +
-        </motion.button>
-
-        {/* Zoom Out */}
-        <motion.button
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.6 }}
-          onClick={() => {
-            if (mapRef.current) {
-              const currentZoom = mapRef.current.getZoom()
-              mapRef.current.zoomTo(Math.max(currentZoom - 1, 10), {
-                duration: 300
-              })
-            }
-          }}
-          className="w-12 h-12 rounded-full backdrop-blur-xl border border-white/20 text-white/80 text-xl font-light flex items-center justify-center"
-          style={{
-            background: `linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`
-          }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          −
-        </motion.button>
-      </div>
-
-      {/* Overlay gradient for noir effect */}
-      <div 
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: `
-            radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.1) 70%),
-            linear-gradient(180deg, rgba(0,0,0,0.1) 0%, transparent 20%, transparent 80%, rgba(0,0,0,0.2) 100%)
-          `
-        }}
-      />
-    </motion.div>
-  )
-}
+export default MapContainer;
