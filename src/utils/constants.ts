@@ -13,10 +13,10 @@ export const STAR_COLORS = [
   '#F472B6'  // Pink
 ]
 
-export const CONNECTION_DISTANCE = 500000 // meters
-export const MAX_CONNECTIONS = 7
-export const POSITION_UPDATE_INTERVAL = 3000 // ms
-export const STATIONARY_TIME = 50000 // ms before showing echo button
+// Removing distance limit by setting it to a very large number
+export const CONNECTION_DISTANCE = 1000000000 // effectively unlimited
+export const MAX_CONNECTIONS = 100 // increased from 7
+export const POSITION_UPDATE_INTERVAL = 2000 // decreased from 3000 for more frequent updates
 
 export const generateStarColor = () => {
   return STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)]
