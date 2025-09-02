@@ -29,10 +29,8 @@ export function useGeolocation() {
             const { latitude, longitude } = position.coords
             console.log('📍 Got GPS position:', latitude, longitude)
             
-            // Update local state
             await updatePosition({ lat: latitude, lng: longitude })
             
-            // Update database IMMEDIATELY
             if (currentUser) {
               const { error } = await supabase.from('active_positions').upsert({
                 user_id: currentUser.id,
@@ -87,7 +85,6 @@ export function useGeolocation() {
       async (position) => {
         const now = Date.now()
         
-        // Update every 5 seconds
         if (now - lastUpdateRef.current < 5000) {
           return
         }
@@ -97,21 +94,21 @@ export function useGeolocation() {
         const { latitude, longitude } = position.coords
         console.log('📍 Position update:', latitude, longitude)
         
-        // Update local
         updatePosition({ lat: latitude, lng: longitude })
         
-        // Update database
         if (currentUser) {
-          await supabase.from('active_positions').upsert({
+          const { error } = await supabase.from('active_positions').upsert({
             user_id: currentUser.id,
             lat: latitude,
             lng: longitude,
             updated_at: new Date().toISOString()
           })
+          if (error) console.error('❌ Failed to update position:', error)
         }
       },
       (error) => {
         console.error('Watch position error:', error)
+        toast.error('Failed to update location')
       },
       {
         enableHighAccuracy: true,
@@ -123,7 +120,9 @@ export function useGeolocation() {
 
   useEffect(() => {
     if (currentUser) {
-      startWatching()
+      requestPermission().then((granted) => {
+        if (granted) startWatching()
+      })
     }
 
     return () => {
@@ -132,7 +131,7 @@ export function useGeolocation() {
         watchIdRef.current = null
       }
     }
-  }, [currentUser, startWatching])
+  }, [currentUser, startWatching, requestPermission])
 
   return { 
     requestPermission,
