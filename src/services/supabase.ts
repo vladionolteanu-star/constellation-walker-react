@@ -8,131 +8,126 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     params: {
       eventsPerSecond: 10
     }
+  },
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false
   }
 })
-
-// Database types
-export interface DbUser {
-  id: string
-  color_hash: string
-  created_at: string
-  last_seen: string
-}
-
-export interface DbActivePosition {
-  user_id: string
-  lat: number
-  lng: number
-  altitude?: number
-  speed?: number
-  heading?: number
-  updated_at: string
-}
-
-export interface DbEcho {
-  id: string
-  user_id: string
-  lat: number
-  lng: number
-  content_type: 'audio' | 'video' | 'photo' | 'text' | 'mood'
-  content_url?: string
-  mood_color?: string
-  decay_date: string
-  created_at: string
-  interaction_count: number
-}
 
 // Helper functions
 export const ensureUserExists = async (userId: string, colorHash: string) => {
   try {
+    console.log('🔍 Checking if user exists:', userId)
+    
+    // Check if user exists
     const { data: existingUser, error: selectError } = await supabase
       .from('users')
       .select('*')
       .eq('id', userId)
-      .single()
+      .maybeSingle() // Use maybeSingle instead of single
 
-    if (selectError && selectError.code !== 'PGRST116') {
+    if (selectError) {
       console.error('Error checking user:', selectError)
-      throw selectError
     }
 
     if (!existingUser) {
+      console.log('📝 Creating new user:', userId)
+      
+      const newUser = {
+        id: userId,
+        color_hash: colorHash,
+        created_at: new Date().toISOString(),
+        last_seen: new Date().toISOString()
+      }
+      
       const { data, error: insertError } = await supabase
         .from('users')
-        .insert({
-          id: userId,
-          color_hash: colorHash,
-          created_at: new Date().toISOString(),
-          last_seen: new Date().toISOString()
-        })
+        .insert(newUser)
         .select()
         .single()
 
       if (insertError) {
-        console.error('Error creating user:', insertError)
-        throw insertError
+        console.error('❌ Error creating user:', insertError)
+        // Return user anyway
+        return newUser
       }
 
-      return data || { id: userId, color_hash: colorHash }
+      console.log('✅ User created successfully:', data)
+      return data || newUser
+    } else {
+      console.log('✅ User exists, updating last_seen')
+      
+      // Update last_seen
+      await supabase
+        .from('users')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', userId)
+
+      return existingUser
     }
-
-    // Update last_seen
-    await supabase
-      .from('users')
-      .update({ last_seen: new Date().toISOString() })
-      .eq('id', userId)
-
-    return existingUser
   } catch (error) {
-    console.error('ensureUserExists error:', error)
+    console.error('❌ ensureUserExists error:', error)
     return { id: userId, color_hash: colorHash }
   }
 }
 
 export const updateUserPosition = async (userId: string, position: { lat: number; lng: number }) => {
   try {
-    const { error } = await supabase.from('active_positions').upsert({
+    console.log('📍 Updating position for user:', userId, position)
+    
+    const positionData = {
       user_id: userId,
       lat: position.lat,
       lng: position.lng,
       updated_at: new Date().toISOString()
-    })
+    }
+    
+    const { data, error } = await supabase
+      .from('active_positions')
+      .upsert(positionData)
+      .select()
 
     if (error) {
-      console.error('Error updating position:', error)
+      console.error('❌ Error updating position:', error)
       return { error }
     }
 
-    return { error: null }
+    console.log('✅ Position updated:', data)
+    return { error: null, data }
   } catch (error) {
-    console.error('updateUserPosition error:', error)
+    console.error('❌ updateUserPosition error:', error)
     return { error }
   }
 }
 
 export const getUsersInArea = async () => {
   try {
+    console.log('🔍 Getting users in area...')
+    
     const { data, error } = await supabase
       .from('active_positions')
-      .select(`
-        user_id,
-        lat,
-        lng,
-        updated_at,
-        users (
-          color_hash
-        )
-      `)
+      .select('*')
       .gte('updated_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
     
     if (error) {
-      console.error('Error getting users:', error)
+      console.error('❌ Error getting users:', error)
       return []
     }
 
+    console.log(`✅ Found ${data?.length || 0} users in area`)
     return data || []
   } catch (error) {
-    console.error('getUsersInArea error:', error)
+    console.error('❌ getUsersInArea error:', error)
     return []
   }
 }
+
+// Test connection
+supabase.from('users').select('count').then(({ data, error }) => {
+  if (error) {
+    console.error('❌ Supabase connection error:', error)
+  } else {
+    console.log('✅ Supabase connected successfully')
+  }
+})
