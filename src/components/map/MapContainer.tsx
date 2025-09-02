@@ -134,26 +134,45 @@ const MapContainer: React.FC = () => {
     }
   };
 
-  const setupRealtime = () => {
-    console.log('Setting up realtime...');
-    channel.current = supabase.channel('online-users');
-    
-    channel.current
-      .on('presence', { event: 'sync' }, () => {
-        console.log('Presence sync');
-        const state = channel.current.presenceState();
-        console.log('Presence state:', state);
-        
-        const allUsers: Record<string, User> = {};
-        
-        Object.keys(state).forEach(key => {
-          const presences = state[key];
-          if (presences && presences.length > 0) {
-            const presence = presences[0];
-            allUsers[presence.user_id] = presence;
-            addUserToMap(presence);
-          }
-        });
+const setupRealtime = () => {
+  console.log('Setting up realtime...');
+  
+  // Add static test bot immediately
+  const testBot = {
+    user_id: 'bot-test-static',
+    color: '#ff00ff',
+    position: {
+      lat: 44.4268,
+      lng: 26.1025
+    }
+  };
+  addUserToMap(testBot);
+  setUsers(prev => ({ ...prev, [testBot.user_id]: testBot }));
+  
+  // Add yourself immediately
+  const myPosition = {
+    user_id: userId.current,
+    color: '#00ff00',
+    position: {
+      lat: 44.4268 + 0.005,
+      lng: 26.1025 + 0.005
+    }
+  };
+  addUserToMap(myPosition);
+  setUsers(prev => ({ ...prev, [myPosition.user_id]: myPosition }));
+  
+  channel.current = supabase.channel('online-users');
+  
+  channel.current
+    .on('presence', { event: 'sync' }, () => {
+      console.log('Presence sync');
+      const state = channel.current.presenceState();
+      console.log('Presence state:', state);
+    })
+    .subscribe((status) => {
+      console.log('Channel status:', status);
+    });
+};
         
         setUsers(allUsers);
       })
