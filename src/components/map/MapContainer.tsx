@@ -19,33 +19,97 @@ const MapContainer: React.FC = () => {
   const map = useRef<mapboxgl.Map | null>(null);
   const [users, setUsers] = useState<Record<string, User>>({});
   const markers = useRef<Record<string, mapboxgl.Marker>>({});
-  const userId = useRef(`user-${Date.now()}-${Math.random()}`);
-  const channel = useRef<any>(null);
+  const userId = useRef(`user-${Date.now()}`);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
+    // Initialize map
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
-      center: [26.1025, 44.4268],
-      zoom: 14,
-      pitch: 45,
-      maxBounds: [
-        [25.8, 44.2],
-        [26.4, 44.6]
-      ]
+      center: [26.1025, 44.4268], // București centru
+      zoom: 13,
+      pitch: 45
     });
 
     map.current.on('load', () => {
       console.log('Map loaded');
       setupMapLayers();
-      startTracking();
-      setupRealtime();
+      
+      // Add test bot immediately
+      const testBot: User = {
+        user_id: 'bot-test',
+        color: '#ff00ff',
+        position: {
+          lat: 44.4268,
+          lng: 26.1025
+        }
+      };
+      
+      // Add you near the bot
+      const myUser: User = {
+        user_id: userId.current,
+        color: '#00ff00',
+        position: {
+          lat: 44.4280,  // Slightly north
+          lng: 26.1040   // Slightly east
+        }
+      };
+      
+      // Add both to map
+      addUserToMap(testBot);
+      addUserToMap(myUser);
+      
+      // Store in state
+      setUsers({
+        [testBot.user_id]: testBot,
+        [myUser.user_id]: myUser
+      });
+      
+      // Center map between both markers
+      map.current?.flyTo({
+        center: [26.1032, 44.4274],
+        zoom: 15,
+        duration: 2000
+      });
+      
+      // Get real GPS position
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            console.log('Got GPS:', position.coords);
+            // Update your position
+            const updatedUser: User = {
+              user_id: userId.current,
+              color: '#00ff00',
+              position: {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              }
+            };
+            
+            addUserToMap(updatedUser);
+            setUsers(prev => ({
+              ...prev,
+              [updatedUser.user_id]: updatedUser
+            }));
+            
+            // Center on your real position
+            map.current?.flyTo({
+              center: [position.coords.longitude, position.coords.latitude],
+              zoom: 15,
+              duration: 2000
+            });
+          },
+          (error) => {
+            console.log('GPS error, using default position');
+          }
+        );
+      }
     });
 
     return () => {
-      channel.current?.unsubscribe();
       map.current?.remove();
     };
   }, []);
@@ -53,6 +117,7 @@ const MapContainer: React.FC = () => {
   const setupMapLayers = () => {
     if (!map.current) return;
 
+    // Source pentru linii
     map.current.addSource('connections', {
       type: 'geojson',
       data: {
@@ -61,6 +126,7 @@ const MapContainer: React.FC = () => {
       }
     });
 
+    // Glow layer
     map.current.addLayer({
       id: 'connection-glow',
       type: 'line',
@@ -73,6 +139,7 @@ const MapContainer: React.FC = () => {
       }
     });
 
+    // Main line layer
     map.current.addLayer({
       id: 'connection-lines',
       type: 'line',
@@ -85,177 +152,65 @@ const MapContainer: React.FC = () => {
     });
   };
 
-  const startTracking = () => {
-    console.log('Starting GPS tracking...');
-    
-    const testPosition = {
-      lat: 44.4268 + (Math.random() - 0.5) * 0.01,
-      lng: 26.1025 + (Math.random() - 0.5) * 0.01
-    };
-    
-    if (channel.current) {
-      channel.current.track({
-        user_id: userId.current,
-        color: '#00ff00',
-        position: testPosition
-      }).then(() => {
-        console.log('User tracked:', userId.current);
-      });
-    }
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          console.log('GPS position:', position.coords);
-          const userPosition = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          };
-          
-          if (channel.current) {
-            await channel.current.track({
-              user_id: userId.current,
-              color: '#00ff00',
-              position: userPosition
-            });
-          }
-        },
-        (error) => {
-          console.error('GPS Error:', error);
-        }
-      );
-    }
-  };
-
-  const setupRealtime = () => {
-    console.log('Setting up realtime...');
-    
-    const testBot = {
-      user_id: 'bot-test-static',
-      color: '#ff00ff',
-      position: {
-        lat: 44.4268,
-        lng: 26.1025
-      }
-    };
-    addUserToMap(testBot);
-    setUsers(prev => ({ ...prev, [testBot.user_id]: testBot }));
-    
-    const myPosition = {
-      user_id: userId.current,
-      color: '#00ff00',
-      position: {
-        lat: 44.4268 + 0.005,
-        lng: 26.1025 + 0.005
-      }
-    };
-    addUserToMap(myPosition);
-    setUsers(prev => ({ ...prev, [myPosition.user_id]: myPosition }));
-    
-    channel.current = supabase.channel('online-users');
-    
-    channel.current
-      .on('presence', { event: 'sync' }, () => {
-        console.log('Presence sync');
-        const state = channel.current.presenceState();
-        console.log('Presence state:', state);
-        const allUsers = {};
-        Object.entries(state).forEach(([key, presences]) => {
-          presences.forEach((presence: User) => {
-            allUsers[presence.user_id] = presence;
-          });
-        });
-        setUsers(allUsers);
-      })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
-        console.log('User joined:', newPresences);
-        newPresences.forEach((presence: User) => {
-          addUserToMap(presence);
-          setUsers(prev => ({ ...prev, [presence.user_id]: presence }));
-        });
-      })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        console.log('User left:', leftPresences);
-        leftPresences.forEach((presence: User) => {
-          if (markers.current[presence.user_id]) {
-            markers.current[presence.user_id].remove();
-            delete markers.current[presence.user_id];
-          }
-          setUsers(prev => {
-            const newUsers = { ...prev };
-            delete newUsers[presence.user_id];
-            return newUsers;
-          });
-        });
-      })
-      .subscribe(async (status) => {
-        console.log('Channel status:', status);
-        if (status === 'SUBSCRIBED') {
-          const testPosition = {
-            lat: 44.4268 + (Math.random() - 0.5) * 0.01,
-            lng: 26.1025 + (Math.random() - 0.5) * 0.01
-          };
-          
-          await channel.current.track({
-            user_id: userId.current,
-            color: '#00ff00',
-            position: testPosition
-          });
-        }
-      });
-  };
-
   const addUserToMap = (user: User) => {
     if (!map.current) return;
-    console.log('Adding user to map:', user);
-
+    
+    // Remove existing marker
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].remove();
     }
 
+    // Create visible marker element with fixed size
     const el = document.createElement('div');
-    el.className = 'user-marker';
-    el.style.width = '24px';
-    el.style.height = '24px';
+    el.style.width = '30px';
+    el.style.height = '30px';
     el.style.borderRadius = '50%';
-    el.style.border = '2px solid #fff';
+    el.style.border = '3px solid #ffffff';
     el.style.cursor = 'pointer';
+    el.style.position = 'relative';
     
+    // Colors based on user type
     if (user.user_id === userId.current) {
-      el.style.background = '#00ff00';
-      el.style.boxShadow = '0 0 30px #00ff00';
-    }
-    else if (user.user_id.startsWith('bot-')) {
-      el.style.background = '#ff00ff';
-      el.style.boxShadow = '0 0 30px #ff00ff';
-    }
-    else {
-      el.style.background = user.color || '#00ffff';
-      el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
+      // You - green
+      el.style.backgroundColor = '#00ff00';
+      el.style.boxShadow = '0 0 40px #00ff00, 0 0 60px #00ff00';
+    } else if (user.user_id.includes('bot')) {
+      // Bot - magenta
+      el.style.backgroundColor = '#ff00ff';
+      el.style.boxShadow = '0 0 40px #ff00ff, 0 0 60px #ff00ff';
+    } else {
+      // Other users - cyan
+      el.style.backgroundColor = '#00ffff';
+      el.style.boxShadow = '0 0 40px #00ffff, 0 0 60px #00ffff';
     }
 
-    const marker = new mapboxgl.Marker(el)
+    // Create marker
+    const marker = new mapboxgl.Marker({
+      element: el,
+      anchor: 'center'
+    })
       .setLngLat([user.position.lng, user.position.lat])
-      .setPopup(new mapboxgl.Popup().setHTML(`
-        <div style="background: black; color: #00ffff; padding: 5px; font-family: monospace;">
-          ${user.user_id.startsWith('bot-') ? 'Bot' : user.user_id === userId.current ? 'You' : 'User'}
+      .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`
+        <div style="background: black; color: #00ffff; padding: 10px; font-family: monospace; border: 1px solid #00ffff;">
+          ${user.user_id.includes('bot') ? '🤖 Bot' : user.user_id === userId.current ? '⭐ You' : '👤 User'}
         </div>
       `))
       .addTo(map.current);
 
     markers.current[user.user_id] = marker;
+    console.log('Added marker for:', user.user_id, 'at', user.position);
   };
 
+  // Update connections when users change
   useEffect(() => {
     if (!map.current) return;
     
     const userList = Object.values(users);
-    console.log('Updating connections for users:', userList.length);
-    
     if (userList.length < 2) return;
 
     const features = [];
     
+    // Create connections between all users
     for (let i = 0; i < userList.length; i++) {
       for (let j = i + 1; j < userList.length; j++) {
         features.push({
