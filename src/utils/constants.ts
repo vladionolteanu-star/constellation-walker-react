@@ -1,6 +1,7 @@
-export const MAPBOX_TOKEN = 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g'
-export const MAPBOX_STYLE = 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg'
+export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g'
+export const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg'
 
+// Restul constantelor rămân la fel...
 export const STAR_COLORS = [
   '#00D4FF', // Cyan
   '#FF00EA', // Magenta
