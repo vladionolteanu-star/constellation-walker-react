@@ -139,3 +139,32 @@
     }
   }
 }
+/* Nebula Map Styles */
+.mapboxgl-popup-content {
+  background: rgba(0, 0, 0, 0.95) !important;
+  border: 1px solid #00ffff !important;
+  border-radius: 0 !important;
+  box-shadow: 0 0 20px #00ffff !important;
+}
+
+.mapboxgl-popup-close-button {
+  color: #00ffff !important;
+  font-size: 20px !important;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: #00ffff !important;
+}
+
+.user-marker {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    transform: scale(1);
+  }
+  50% { 
+    transform: scale(1.1);
+  }
+}
