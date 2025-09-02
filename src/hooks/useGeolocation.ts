@@ -1,13 +1,13 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { useUserStore } from '../store/userStore'
-import { POSITION_UPDATE_INTERVAL } from '../utils/constants'
+import { supabase } from '../services/supabase'
 import toast from 'react-hot-toast'
 
 export function useGeolocation() {
   const { updatePosition, currentUser } = useUserStore()
   const watchIdRef = useRef<number | null>(null)
   const lastUpdateRef = useRef<number>(0)
-  const hasShownLocationToast = useRef(false) // Previne spam-ul
+  const hasShownLocationToast = useRef(false)
 
   const requestPermission = useCallback(async () => {
     if (!navigator.geolocation) {
@@ -25,13 +25,31 @@ export function useGeolocation() {
 
       return new Promise<boolean>((resolve) => {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
+          async (position) => {
             const { latitude, longitude } = position.coords
-            updatePosition({ lat: latitude, lng: longitude })
+            console.log('📍 Got GPS position:', latitude, longitude)
             
-            // Arată toast-ul DOAR o dată
+            // Update local state
+            await updatePosition({ lat: latitude, lng: longitude })
+            
+            // Update database IMMEDIATELY
+            if (currentUser) {
+              const { error } = await supabase.from('active_positions').upsert({
+                user_id: currentUser.id,
+                lat: latitude,
+                lng: longitude,
+                updated_at: new Date().toISOString()
+              })
+              
+              if (!error) {
+                console.log('✅ Initial position saved to DB')
+              } else {
+                console.error('❌ Failed to save position:', error)
+              }
+            }
+            
             if (!hasShownLocationToast.current) {
-              toast.success('📍 Location found - you are now visible on the map')
+              toast.success('📍 Location found - you are now visible')
               hasShownLocationToast.current = true
             }
             
@@ -39,21 +57,7 @@ export function useGeolocation() {
           },
           (error) => {
             console.error('Geolocation error:', error)
-            let errorMessage = 'Failed to get location'
-            
-            switch (error.code) {
-              case error.PERMISSION_DENIED:
-                errorMessage = 'Location permission denied'
-                break
-              case error.POSITION_UNAVAILABLE:
-                errorMessage = 'Location unavailable'
-                break
-              case error.TIMEOUT:
-                errorMessage = 'Location request timeout'
-                break
-            }
-            
-            toast.error(errorMessage)
+            toast.error('Failed to get location')
             resolve(false)
           },
           {
@@ -68,7 +72,7 @@ export function useGeolocation() {
       toast.error('Failed to request location permission')
       return false
     }
-  }, [updatePosition])
+  }, [updatePosition, currentUser])
 
   const startWatching = useCallback(() => {
     if (!navigator.geolocation || !currentUser) return
@@ -77,25 +81,41 @@ export function useGeolocation() {
       navigator.geolocation.clearWatch(watchIdRef.current)
     }
 
+    console.log('👁️ Starting position watch...')
+
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
+      async (position) => {
         const now = Date.now()
         
-        if (now - lastUpdateRef.current < POSITION_UPDATE_INTERVAL) {
+        // Update every 5 seconds
+        if (now - lastUpdateRef.current < 5000) {
           return
         }
         
         lastUpdateRef.current = now
         
         const { latitude, longitude } = position.coords
+        console.log('📍 Position update:', latitude, longitude)
+        
+        // Update local
         updatePosition({ lat: latitude, lng: longitude })
+        
+        // Update database
+        if (currentUser) {
+          await supabase.from('active_positions').upsert({
+            user_id: currentUser.id,
+            lat: latitude,
+            lng: longitude,
+            updated_at: new Date().toISOString()
+          })
+        }
       },
       (error) => {
         console.error('Watch position error:', error)
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 30000,
+        maximumAge: 10000,
         timeout: 15000
       }
     )
