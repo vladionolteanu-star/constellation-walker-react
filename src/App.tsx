@@ -36,7 +36,7 @@ function App() {
             window.location.hostname.includes('vercel')
           ) {
             setTimeout(() => {
-              botSystem.createBots(20)
+              botSystem.createBots(1)
             }, 2000)
           }
         }
