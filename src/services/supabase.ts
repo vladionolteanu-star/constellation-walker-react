@@ -5,15 +5,9 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Test conexiune
-console.log('🔵 SUPABASE: Testez conexiunea...')
-supabase.from('users').select('count').then(({ data, error }) => {
-  if (error) {
-    console.error('❌ SUPABASE CONNECTION ERROR:', error)
-  } else {
-    console.log('✅ SUPABASE CONNECTED!')
-  }
-})
+supabase.from('users').select('*').limit(1).then(({ data, error }) => {
+  console.log('Răspuns:', data, 'Eroare:', error);
+});
 
 export const ensureUserExists = async (userId: string, colorHash: string) => {
   console.log('🔵 SAVING USER:', userId)
