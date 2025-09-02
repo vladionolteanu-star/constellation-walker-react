@@ -12,9 +12,8 @@ const humanEvolutionStages = [
 export default function LoadingScreen() {
   const prefersReducedMotion = useReducedMotion();
 
-  // Am mărit puțin durata totală pentru a permite tuturor animațiilor să respire
-  const cosmicDuration = prefersReducedMotion ? 0 : 4;
-  const evolutionDuration = prefersReducedMotion ? 0 : 6;
+  const cosmicDuration = prefersReducedMotion ? 0 : 6; // Big Bang + particule
+  const evolutionDuration = prefersReducedMotion ? 0 : 10; // evoluție extinsă
   const transitionEase = prefersReducedMotion ? "linear" : "easeInOut";
 
   return (
@@ -62,8 +61,10 @@ export default function LoadingScreen() {
           animate={{ scale: prefersReducedMotion ? 1 : 20, opacity: 0 }}
           transition={{
             duration: cosmicDuration,
-            delay: i * 0.25,
+            delay: i * 0.4,
             ease: transitionEase,
+            repeat: Infinity,
+            repeatType: "loop",
           }}
           style={{
             borderColor: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
@@ -76,8 +77,8 @@ export default function LoadingScreen() {
 
       {/* Particles */}
       <div className="absolute inset-0">
-        {[...Array(80)].map((_, i) => {
-          const angle = (i / 80) * Math.PI * 2 + Math.random() * 0.2;
+        {[...Array(100)].map((_, i) => {
+          const angle = (i / 100) * Math.PI * 2 + Math.random() * 0.2;
           const distance = 700 + Math.random() * 500;
           const duration = cosmicDuration * (1 + Math.random() * 0.3);
           return (
@@ -94,7 +95,9 @@ export default function LoadingScreen() {
               transition={{
                 duration,
                 ease: transitionEase,
-                delay: Math.random() * 0.4,
+                delay: Math.random() * 0.8,
+                repeat: Infinity,
+                repeatType: "loop",
               }}
               style={{
                 background: ["#FF4500", "#00D4FF", "#FF00EA", "#FFD700", "#00FF88", "#FF1493"][i % 6],
@@ -107,7 +110,7 @@ export default function LoadingScreen() {
         })}
       </div>
 
-      {/* Human Evolution – secvențial, vizibil (Structura era deja corectă) */}
+      {/* Human Evolution */}
       <motion.div
         className="relative z-20 flex items-center justify-center"
         initial={{ opacity: 1 }}
@@ -126,8 +129,8 @@ export default function LoadingScreen() {
                 rotate: prefersReducedMotion ? 0 : [0, 10, -10, 0],
               }}
               transition={{
-                duration: 1, // fiecare etapă durează 1 sec
-                delay: cosmicDuration + i * 1, // pornește după animația cosmică
+                duration: 1.5,
+                delay: cosmicDuration + i * 1.5,
                 ease: transitionEase,
               }}
               style={{
@@ -138,13 +141,13 @@ export default function LoadingScreen() {
         </svg>
       </motion.div>
 
-      {/* Central Logo – apare după ce se termină evoluția */}
+      {/* Central Logo */}
       <motion.div
         className="relative z-10 text-center"
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{
-          delay: cosmicDuration + evolutionDuration - 1,
+          delay: cosmicDuration + evolutionDuration,
           duration: 0.8,
           type: "spring",
           damping: 12,
@@ -157,8 +160,8 @@ export default function LoadingScreen() {
             scale: prefersReducedMotion ? 1 : [1, 1.2, 1],
           }}
           transition={{
-            rotate: { duration: 15, repeat: Infinity, ease: "linear" },
-            scale: { duration: 2, repeat: Infinity, ease: "easeInOut" },
+            rotate: { duration: 20, repeat: Infinity, ease: "linear" },
+            scale: { duration: 3, repeat: Infinity, ease: "easeInOut" },
           }}
           style={{
             background: `radial-gradient(circle at 40% 40%, #FFD700, #00D4FF 70%, transparent 90%)`,
@@ -168,7 +171,7 @@ export default function LoadingScreen() {
           className="text-5xl font-bold mb-3 bg-gradient-to-r from-orange-500 via-cyan-400 to-purple-500 bg-clip-text text-transparent"
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: cosmicDuration + evolutionDuration - 0.8 }}
+          transition={{ delay: cosmicDuration + evolutionDuration + 0.5 }}
         >
           CONSTELLATION
         </motion.h1>
@@ -177,8 +180,8 @@ export default function LoadingScreen() {
           initial={{ opacity: 0 }}
           animate={{ opacity: [0, 1, 0.9, 1] }}
           transition={{
-            delay: cosmicDuration + evolutionDuration - 0.5,
-            duration: 0.4,
+            delay: cosmicDuration + evolutionDuration + 1,
+            duration: 0.6,
           }}
         >
           WALKER
