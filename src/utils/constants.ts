@@ -1,7 +1,6 @@
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g'
 export const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg'
 
-// Restul constantelor rămân la fel...
 export const STAR_COLORS = [
   '#00D4FF', // Cyan
   '#FF00EA', // Magenta
@@ -13,12 +12,11 @@ export const STAR_COLORS = [
   '#F472B6'  // Pink
 ]
 
-export const CONNECTION_DISTANCE = 500000 // meters
+export const CONNECTION_DISTANCE = 500 // meters
 export const MAX_CONNECTIONS = 7
 export const POSITION_UPDATE_INTERVAL = 3000 // ms
 export const STATIONARY_TIME = 5000 // ms before showing echo button
 
-// Utility functions
 export const generateStarColor = () => {
   return STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)]
 }
