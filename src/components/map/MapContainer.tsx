@@ -29,17 +29,76 @@ const MapContainer: React.FC = () => {
       container: mapContainer.current,
       style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
       center: [26.1025, 44.4268],
-      zoom: 13,
-      pitch: 45,
-      antialias: false, // Performance
-      preserveDrawingBuffer: false // Performance
+      zoom: 14,
+      pitch: 45
     });
 
     map.current.on('load', () => {
       setupMapLayers();
-      addStaticBot();
-      initializeUser();
+      
+      // Add 3 static bots
+      const bot1: User = {
+        user_id: 'bot-alpha',
+        color: '#ff00ff',
+        position: { lat: 44.4268, lng: 26.1025 }
+      };
+      
+      const bot2: User = {
+        user_id: 'bot-beta',
+        color: '#ff00ff',
+        position: { lat: 44.425, lng: 26.105 }
+      };
+      
+      const bot3: User = {
+        user_id: 'bot-gamma',
+        color: '#ff00ff',
+        position: { lat: 44.429, lng: 26.103 }
+      };
+      
+      // Add you
+      const myUser: User = {
+        user_id: userId.current,
+        color: '#00ff00',
+        position: { lat: 44.427, lng: 26.107 }
+      };
+      
+      // Add all to map
+      [bot1, bot2, bot3, myUser].forEach(user => {
+        addUserToMap(user);
+      });
+      
+      // Store all users
+      setUsers({
+        [bot1.user_id]: bot1,
+        [bot2.user_id]: bot2,
+        [bot3.user_id]: bot3,
+        [myUser.user_id]: myUser
+      });
+      
+      // Setup realtime for other users
       setupRealtime();
+      
+      // Get real GPS
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const updatedUser: User = {
+              user_id: userId.current,
+              color: '#00ff00',
+              position: {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              }
+            };
+            
+            updateUserPosition(updatedUser);
+            
+            if (channel.current) {
+              channel.current.track(updatedUser);
+            }
+          }
+        );
+      }
     });
 
     return () => {
@@ -51,7 +110,6 @@ const MapContainer: React.FC = () => {
   const setupMapLayers = () => {
     if (!map.current) return;
 
-    // Neural network style connections
     map.current.addSource('connections', {
       type: 'geojson',
       data: {
@@ -60,28 +118,28 @@ const MapContainer: React.FC = () => {
       }
     });
 
-    // Multiple glow layers for neural effect
+    // Neural network effect
     map.current.addLayer({
-      id: 'connection-outer-glow',
+      id: 'connection-glow-1',
       type: 'line',
       source: 'connections',
       paint: {
         'line-color': '#00ffff',
-        'line-width': 20,
+        'line-width': 15,
         'line-opacity': 0.1,
-        'line-blur': 20
+        'line-blur': 15
       }
     });
 
     map.current.addLayer({
-      id: 'connection-mid-glow',
+      id: 'connection-glow-2',
       type: 'line',
       source: 'connections',
       paint: {
         'line-color': '#00ffff',
-        'line-width': 8,
+        'line-width': 6,
         'line-opacity': 0.3,
-        'line-blur': 8
+        'line-blur': 6
       }
     });
 
@@ -91,63 +149,10 @@ const MapContainer: React.FC = () => {
       source: 'connections',
       paint: {
         'line-color': '#ffffff',
-        'line-width': 1,
-        'line-opacity': 0.9
+        'line-width': 1.5,
+        'line-opacity': 0.8
       }
     });
-  };
-
-  const addStaticBot = () => {
-    const bot: User = {
-      user_id: 'bot-nebula',
-      color: '#ff00ff',
-      position: { lat: 44.4268, lng: 26.1025 }
-    };
-    
-    addUserToMap(bot);
-    setUsers(prev => ({ ...prev, [bot.user_id]: bot }));
-  };
-
-  const initializeUser = () => {
-    // Start with default position
-    const defaultUser: User = {
-      user_id: userId.current,
-      color: '#00ff00',
-      position: { lat: 44.428, lng: 26.104 }
-    };
-    
-    addUserToMap(defaultUser);
-    setUsers(prev => ({ ...prev, [defaultUser.user_id]: defaultUser }));
-
-    // Try real GPS
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const updatedUser: User = {
-            user_id: userId.current,
-            color: '#00ff00',
-            position: {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude
-            }
-          };
-          
-          updateUserPosition(updatedUser);
-          
-          // Broadcast to others
-          if (channel.current) {
-            channel.current.track(updatedUser);
-          }
-        },
-        (error) => {
-          console.log('Using default position');
-          // Broadcast default position
-          if (channel.current) {
-            channel.current.track(defaultUser);
-          }
-        }
-      );
-    }
   };
 
   const setupRealtime = () => {
@@ -156,10 +161,11 @@ const MapContainer: React.FC = () => {
     channel.current
       .on('presence', { event: 'sync' }, () => {
         const state = channel.current.presenceState();
+        console.log('Sync:', state);
         
         Object.keys(state).forEach(key => {
           const presences = state[key];
-          if (presences?.[0] && presences[0].user_id !== userId.current) {
+          if (presences?.[0] && presences[0].user_id !== userId.current && !presences[0].user_id.includes('bot')) {
             const user = presences[0];
             addUserToMap(user);
             setUsers(prev => ({ ...prev, [user.user_id]: user }));
@@ -167,21 +173,12 @@ const MapContainer: React.FC = () => {
         });
       })
       .on('presence', { event: 'join' }, ({ newPresences }) => {
+        console.log('Join:', newPresences);
         newPresences.forEach((user: User) => {
-          if (user.user_id !== userId.current) {
+          if (user.user_id !== userId.current && !user.user_id.includes('bot')) {
             addUserToMap(user);
             setUsers(prev => ({ ...prev, [user.user_id]: user }));
           }
-        });
-      })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        leftPresences.forEach((user: User) => {
-          removeUserFromMap(user.user_id);
-          setUsers(prev => {
-            const newUsers = { ...prev };
-            delete newUsers[user.user_id];
-            return newUsers;
-          });
         });
       })
       .subscribe();
@@ -195,24 +192,20 @@ const MapContainer: React.FC = () => {
     }
 
     const el = document.createElement('div');
-    el.style.width = '25px';
-    el.style.height = '25px';
+    el.style.width = '30px';
+    el.style.height = '30px';
     el.style.borderRadius = '50%';
-    el.style.border = '2px solid rgba(255,255,255,0.9)';
-    el.style.position = 'relative';
-    
-    // Pulse animation
-    el.style.animation = 'pulse 2s infinite';
+    el.style.border = '3px solid white';
     
     if (user.user_id === userId.current) {
       el.style.backgroundColor = '#00ff00';
-      el.style.boxShadow = '0 0 30px #00ff00';
+      el.style.boxShadow = '0 0 40px #00ff00';
     } else if (user.user_id.includes('bot')) {
       el.style.backgroundColor = '#ff00ff';
-      el.style.boxShadow = '0 0 30px #ff00ff';
+      el.style.boxShadow = '0 0 40px #ff00ff';
     } else {
-      el.style.backgroundColor = user.color || '#00ffff';
-      el.style.boxShadow = `0 0 30px ${user.color || '#00ffff'}`;
+      el.style.backgroundColor = '#00ffff';
+      el.style.boxShadow = '0 0 40px #00ffff';
     }
 
     const marker = new mapboxgl.Marker({
@@ -228,20 +221,11 @@ const MapContainer: React.FC = () => {
   const updateUserPosition = (user: User) => {
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].setLngLat([user.position.lng, user.position.lat]);
-    } else {
-      addUserToMap(user);
     }
     setUsers(prev => ({ ...prev, [user.user_id]: user }));
   };
 
-  const removeUserFromMap = (userId: string) => {
-    if (markers.current[userId]) {
-      markers.current[userId].remove();
-      delete markers.current[userId];
-    }
-  };
-
-  // Update neural connections
+  // Update connections
   useEffect(() => {
     if (!map.current) return;
     
@@ -250,7 +234,7 @@ const MapContainer: React.FC = () => {
 
     const features = [];
     
-    // Connect all users (triangle, square, etc)
+    // Connect all users
     for (let i = 0; i < userList.length; i++) {
       for (let j = i + 1; j < userList.length; j++) {
         features.push({
@@ -276,15 +260,7 @@ const MapContainer: React.FC = () => {
   }, [users]);
 
   return (
-    <>
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50% { transform: scale(1.2); opacity: 0.8; }
-        }
-      `}</style>
-      <div ref={mapContainer} className="w-full h-screen bg-black" />
-    </>
+    <div ref={mapContainer} className="w-full h-screen bg-black" />
   );
 };
 
