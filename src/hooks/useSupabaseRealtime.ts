@@ -5,51 +5,81 @@ import { generateStarColor } from '../utils/constants'
 import toast from 'react-hot-toast'
 
 export function useSupabaseRealtime() {
-  const { currentUser, addOtherUser, removeOtherUser, updateOtherUser } = useUserStore()
+  const { currentUser, addOtherUser, removeOtherUser } = useUserStore()
   const channelRef = useRef<any>(null)
   const hasShownConnectionToast = useRef(false)
-  const updateIntervalRef = useRef<any>(null)
+
+  const loadInitialUsers = async () => {
+    if (!currentUser) return
+    try {
+      const { data: positions, error } = await supabase
+        .from('active_positions')
+        .select('*')
+        .gt('updated_at', new Date(Date.now() - 30000).toISOString())
+      if (error) throw error
+      console.log(`📍 Found ${positions?.length || 0} active positions`)
+      for (const pos of positions) {
+        if (pos.user_id === currentUser.id) continue
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('color_hash')
+          .eq('id', pos.user_id)
+          .single()
+        if (userError) console.error('Error fetching user data:', userError)
+        addOtherUser({
+          id: pos.user_id,
+          color: userData?.color_hash || generateStarColor(),
+          position: { lat: pos.lat, lng: pos.lng },
+        })
+      }
+    } catch (error) {
+      console.error('❌ Failed to load users:', error)
+    }
+  }
 
   const startRealtime = () => {
-    if (!currentUser) {
-      console.log('No current user, skipping realtime')
-      return
-    }
-
+    if (!currentUser) return
     console.log('🚀 Starting realtime for user:', currentUser.id)
 
-    // Încarcă userii existenți IMEDIAT
     loadInitialUsers()
 
-    // Update propria poziție IMEDIAT
     if (currentUser.position) {
-      supabase.from('active_positions').upsert({
-        user_id: currentUser.id,
-        lat: currentUser.position.lat,
-        lng: currentUser.position.lng,
-        updated_at: new Date().toISOString()
-      }).then(({ error }) => {
-        if (error) console.error('Error updating position:', error)
-        else console.log('✅ Position updated in DB')
-      })
-    }
-
-    // Polling pentru alți useri (mai sigur decât realtime)
-    updateIntervalRef.current = setInterval(() => {
-      loadInitialUsers()
-      
-      // Update și propria poziție
-      if (currentUser.position) {
-        supabase.from('active_positions').upsert({
+      supabase
+        .from('active_positions')
+        .upsert({
           user_id: currentUser.id,
           lat: currentUser.position.lat,
           lng: currentUser.position.lng,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         })
-      }
-    }, 3000) // Check every 3 seconds
+        .then(({ error }) => {
+          if (error) console.error('Error updating position:', error)
+        })
+    }
 
-    // Arată toast doar o dată
+    channelRef.current = supabase
+      .channel('active_positions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'active_positions' }, async (payload) => {
+        const { eventType, new: newData, old: oldData } = payload
+        if (eventType === 'INSERT' || eventType === 'UPDATE') {
+          if (newData.user_id === currentUser.id) return
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('color_hash')
+            .eq('id', newData.user_id)
+            .single()
+          if (userError) console.error('Error fetching user data:', userError)
+          addOtherUser({
+            id: newData.user_id,
+            color: userData?.color_hash || generateStarColor(),
+            position: { lat: newData.lat, lng: newData.lng },
+          })
+        } else if (eventType === 'DELETE') {
+          removeOtherUser(oldData.user_id)
+        }
+      })
+      .subscribe()
+
     if (!hasShownConnectionToast.current) {
       setTimeout(() => {
         toast.success('🔗 Connected to constellation network')
@@ -58,90 +88,8 @@ export function useSupabaseRealtime() {
     }
   }
 
-  const loadInitialUsers = async () => {
-  if (!currentUser) return
-  try {
-    // Acum va returna toate pozițiile, fără filtru de timp!
-    const { data: positions, error } = await supabase
-      .from('active_positions')
-      .select('*')
-    if (error) {
-      console.error('❌ Error loading positions:', error)
-      return
-    }
-    console.log(`📍 Found ${positions?.length || 0} active positions in DB`)
-    if (positions && positions.length > 0) {
-      for (const pos of positions) {
-        if (pos.user_id === currentUser.id) continue
-        // Ia culoarea userului
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('color_hash')
-          .eq('id', pos.user_id)
-          .single()
-        const userColor = userData?.color_hash || generateStarColor()
-        addOtherUser({
-          id: pos.user_id,
-          color: userColor,
-          position: {
-            lat: pos.lat,
-            lng: pos.lng
-          }
-        })
-      }
-    }
-  } catch (error) {
-    console.error('❌ Failed to load users:', error)
-  }
-}
-
-          // Ia culoarea userului
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('color_hash')
-            .eq('id', pos.user_id)
-            .single()
-
-          if (userError) {
-            console.error('Error fetching user data:', userError)
-          }
-
-          const userColor = userData?.color_hash || generateStarColor()
-          
-          console.log(`Adding/updating user: ${pos.user_id.slice(0, 8)}... at ${pos.lat}, ${pos.lng}`)
-          
-          // Adaugă sau update user
-          addOtherUser({
-            id: pos.user_id,
-            color: userColor,
-            position: {
-              lat: pos.lat,
-              lng: pos.lng
-            }
-          })
-        }
-
-        // Toast doar pentru useri noi
-        const otherUsersCount = positions.length - 1 // Minus tu
-        if (otherUsersCount > 0) {
-          console.log(`🌟 ${otherUsersCount} other stars visible`)
-        }
-      } else {
-        console.log('No other users found in database')
-      }
-    } catch (error) {
-      console.error('❌ Failed to load users:', error)
-    }
-  }
-
   const stopRealtime = () => {
     console.log('Stopping realtime...')
-    
-    if (updateIntervalRef.current) {
-      clearInterval(updateIntervalRef.current)
-      updateIntervalRef.current = null
-    }
-
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current)
       channelRef.current = null
@@ -149,13 +97,8 @@ export function useSupabaseRealtime() {
   }
 
   useEffect(() => {
-    return () => {
-      stopRealtime()
-    }
+    return () => stopRealtime()
   }, [])
 
-  return {
-    startRealtime,
-    stopRealtime
-  }
+  return { startRealtime, stopRealtime }
 }
