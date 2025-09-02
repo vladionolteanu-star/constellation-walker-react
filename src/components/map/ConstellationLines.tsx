@@ -17,25 +17,20 @@ export default function ConstellationLines() {
     const features: any[] = []
     const myPosition = currentUser.position
 
-    // Connect with all other users regardless of distance
-    const connectedUsers = otherUsers
-      .filter(user => user.position)
-      .map(user => ({
-        ...user,
-        distance: calculateDistance(
-          myPosition.lat,
-          myPosition.lng,
-          user.position!.lat,
-          user.position!.lng
-        )
-      }))
+    // Connect to all users with position
+    const connectedUsers = otherUsers.filter(user => user.position)
 
     // Create light ray connections to all users
     connectedUsers.forEach((user, index) => {
       features.push({
         type: 'Feature',
         properties: {
-          distance: user.distance,
+          distance: calculateDistance(
+            myPosition.lat,
+            myPosition.lng,
+            user.position!.lat,
+            user.position!.lng
+          ),
           index: index,
           color: user.color,
           primary: true
@@ -50,7 +45,7 @@ export default function ConstellationLines() {
       })
     })
 
-    // Create connections between all users for complete constellation
+    // Create interconnections between all users
     for (let i = 0; i < connectedUsers.length; i++) {
       for (let j = i + 1; j < connectedUsers.length; j++) {
         const user1 = connectedUsers[i]
@@ -127,7 +122,7 @@ export default function ConstellationLines() {
         }}
       />
 
-      {/* Glowing effect for primary connections */}
+      {/* Outer glow effect for primary connections */}
       <Layer
         id="constellation-primary-glow"
         type="line"
@@ -151,7 +146,7 @@ export default function ConstellationLines() {
         }}
       />
 
-      {/* Secondary connections between other users */}
+      {/* Secondary connections */}
       <Layer
         id="constellation-secondary"
         type="line"
