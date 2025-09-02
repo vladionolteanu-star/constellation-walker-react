@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../services/supabase'
 import { User, Position } from '../types/user.types'
 import { STAR_COLORS } from '../utils/constants'
 import toast from 'react-hot-toast'
