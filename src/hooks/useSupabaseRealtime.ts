@@ -59,30 +59,41 @@ export function useSupabaseRealtime() {
   }
 
   const loadInitialUsers = async () => {
-    if (!currentUser) return
-
-    try {
-      // Query pentru TOȚI userii activi (inclusiv tine pentru debug)
-      const { data: positions, error } = await supabase
-        .from('active_positions')
-        .select('*')
-        .gte('updated_at', new Date(Date.now() - 60 * 1000).toISOString()) // Ultimul minut
-
-      if (error) {
-        console.error('❌ Error loading positions:', error)
-        return
-      }
-
-      console.log(`📍 Found ${positions?.length || 0} active positions in DB`)
-
-      if (positions && positions.length > 0) {
-        // Procesează fiecare poziție
-        for (const pos of positions) {
-          // Skip propriul user
-          if (pos.user_id === currentUser.id) {
-            console.log('Skipping own position')
-            continue
+  if (!currentUser) return
+  try {
+    // Acum va returna toate pozițiile, fără filtru de timp!
+    const { data: positions, error } = await supabase
+      .from('active_positions')
+      .select('*')
+    if (error) {
+      console.error('❌ Error loading positions:', error)
+      return
+    }
+    console.log(`📍 Found ${positions?.length || 0} active positions in DB`)
+    if (positions && positions.length > 0) {
+      for (const pos of positions) {
+        if (pos.user_id === currentUser.id) continue
+        // Ia culoarea userului
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('color_hash')
+          .eq('id', pos.user_id)
+          .single()
+        const userColor = userData?.color_hash || generateStarColor()
+        addOtherUser({
+          id: pos.user_id,
+          color: userColor,
+          position: {
+            lat: pos.lat,
+            lng: pos.lng
           }
+        })
+      }
+    }
+  } catch (error) {
+    console.error('❌ Failed to load users:', error)
+  }
+}
 
           // Ia culoarea userului
           const { data: userData, error: userError } = await supabase
