@@ -10,6 +10,8 @@ import { botSystem } from './utils/botSystem'
 
 // component pentru debugging / status conexiune Supabase
 import SupabaseStatus from './components/SupabaseStatus'
+// import DebugPanel from './components/UI/DebugPanel'
+// import UserCounter from './components/UI/UserCounter'
 
 function App() {
   const { isLoading, currentUser, initializeUser } = useUserStore()
@@ -30,13 +32,13 @@ function App() {
         if (locationGranted) {
           startRealtime()
 
-          // Activează boți pentru testare doar în dev
+          // Activează botii pentru testare doar în dev/local
           if (
             window.location.hostname === 'localhost' ||
             window.location.hostname.includes('vercel')
           ) {
             setTimeout(() => {
-              botSystem.createBots(1)
+              botSystem.createBots(1) // <--- doar 1 bot
             }, 2000)
           }
         }
@@ -60,6 +62,8 @@ function App() {
     <div>
       {/* status bar pentru debugging conexiune Supabase */}
       <SupabaseStatus />
+      {/* <DebugPanel /> */}
+      {/* <UserCounter /> */}
 
       <AnimatePresence mode="wait">
         {isLoading || !currentUser ? (
