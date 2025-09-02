@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { User, Position } from '../types/user.types'
 import { supabase } from '../lib/supabase'
+import { User, Position } from '../types/user.types'
 import { STAR_COLORS } from '../utils/constants'
 import { toast } from 'sonner'
 
@@ -24,37 +24,44 @@ export const useUserStore = create<UserStore>((set, get) => ({
 
   initializeUser: async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No user found')
-
+      const userId = crypto.randomUUID()
       const color = generateStarColor()
       
       set({
         currentUser: {
-          id: user.id,
+          id: userId,
           color,
           position: null
         },
         isLoading: false
       })
 
-      // Subscribe to other users' positions
-      const channel = supabase
-        .channel('presence-channel')
+      // Subscribe to presence channel
+      const channel = supabase.channel('online-users')
+      
+      channel
         .on('presence', { event: 'sync' }, () => {
           const state = channel.presenceState()
-          const users = Object.values(state).flat().map((p: any) => ({
-            id: p.user_id,
-            color: p.color,
-            position: p.position,
-            lastSeen: new Date(p.updated_at)
-          }))
-
-          set(state => ({
-            otherUsers: users.filter(u => u.id !== state.currentUser?.id)
-          }))
+          const others = Object.values(state)
+            .flat()
+            .filter((u: any) => u.user_id !== userId)
+            .map((u: any) => ({
+              id: u.user_id,
+              color: u.color,
+              position: u.position
+            }))
+          
+          set({ otherUsers: others })
         })
-        .subscribe()
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({
+              user_id: userId,
+              color,
+              position: null
+            })
+          }
+        })
 
       toast.success('🌟 You are now a star in the constellation')
     } catch (error) {
@@ -69,6 +76,7 @@ export const useUserStore = create<UserStore>((set, get) => ({
     if (!currentUser) return
 
     try {
+      // Update local state
       set({
         currentUser: {
           ...currentUser,
@@ -77,11 +85,11 @@ export const useUserStore = create<UserStore>((set, get) => ({
       })
 
       // Update presence state
-      await supabase.channel('presence-channel').track({
+      await supabase.channel('online-users').track({
         user_id: currentUser.id,
         color: currentUser.color,
         position,
-        updated_at: new Date().toISOString()
+        last_seen: new Date().toISOString()
       })
     } catch (error) {
       console.error('Failed to update position:', error)
