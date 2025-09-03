@@ -36,53 +36,42 @@ const MapContainer: React.FC = () => {
     map.current.on('load', () => {
       setupMapLayers();
       
-      // Add 3 static bots
-      const bot1: User = {
-        user_id: 'bot-alpha',
-        color: '#ff00ff',
-        position: { lat: 44.4268, lng: 26.1025 }
-      };
-      
-      const bot2: User = {
-        user_id: 'bot-beta',
-        color: '#ff00ff',
-        position: { lat: 44.425, lng: 26.105 }
-      };
-      
-      const bot3: User = {
-        user_id: 'bot-gamma',
-        color: '#ff00ff',
-        position: { lat: 44.429, lng: 26.103 }
-      };
-      
-      // Add you
-      const myUser: User = {
-        user_id: userId.current,
-        color: '#00ff00',
-        position: { lat: 44.427, lng: 26.107 }
-      };
-      
-      // Add all to map
-      [bot1, bot2, bot3, myUser].forEach(user => {
-        addUserToMap(user);
+      // Add 3 static bots to everyone's view
+      const staticBots: User[] = [
+        {
+          user_id: 'bot-alpha',
+          color: '#ff00ff',
+          position: { lat: 44.4268, lng: 26.1025 }
+        },
+        {
+          user_id: 'bot-beta', 
+          color: '#ff00ff',
+          position: { lat: 44.425, lng: 26.105 }
+        },
+        {
+          user_id: 'bot-gamma',
+          color: '#ff00ff',
+          position: { lat: 44.429, lng: 26.103 }
+        }
+      ];
+
+      // Add bots to map and state
+      const initialUsers: Record<string, User> = {};
+      staticBots.forEach(bot => {
+        addUserToMap(bot);
+        initialUsers[bot.user_id] = bot;
       });
+
+      setUsers(initialUsers);
       
-      // Store all users
-      setUsers({
-        [bot1.user_id]: bot1,
-        [bot2.user_id]: bot2,
-        [bot3.user_id]: bot3,
-        [myUser.user_id]: myUser
-      });
-      
-      // Setup realtime for other users
+      // Setup realtime BEFORE adding current user
       setupRealtime();
       
-      // Get real GPS
+      // Get real GPS and add current user
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            const updatedUser: User = {
+            const myUser: User = {
               user_id: userId.current,
               color: '#00ff00',
               position: {
@@ -91,10 +80,38 @@ const MapContainer: React.FC = () => {
               }
             };
             
-            updateUserPosition(updatedUser);
+            // Add current user to map
+            addUserToMap(myUser);
+            setUsers(prev => ({ ...prev, [myUser.user_id]: myUser }));
+            
+            // Track current user position in presence
+            if (channel.current) {
+              channel.current.track({
+                user_id: myUser.user_id,
+                color: myUser.color,
+                position: myUser.position,
+                online_at: new Date().toISOString()
+              });
+            }
+          },
+          () => {
+            // Fallback position if GPS fails
+            const myUser: User = {
+              user_id: userId.current,
+              color: '#00ff00',
+              position: { lat: 44.427, lng: 26.107 }
+            };
+            
+            addUserToMap(myUser);
+            setUsers(prev => ({ ...prev, [myUser.user_id]: myUser }));
             
             if (channel.current) {
-              channel.current.track(updatedUser);
+              channel.current.track({
+                user_id: myUser.user_id,
+                color: myUser.color,
+                position: myUser.position,
+                online_at: new Date().toISOString()
+              });
             }
           }
         );
@@ -102,6 +119,7 @@ const MapContainer: React.FC = () => {
     });
 
     return () => {
+      channel.current?.untrack();
       channel.current?.unsubscribe();
       map.current?.remove();
     };
@@ -156,28 +174,65 @@ const MapContainer: React.FC = () => {
   };
 
   const setupRealtime = () => {
-    channel.current = supabase.channel('online-users');
+    channel.current = supabase.channel('constellation-users', {
+      config: {
+        presence: {
+          key: userId.current
+        }
+      }
+    });
     
     channel.current
       .on('presence', { event: 'sync' }, () => {
         const state = channel.current.presenceState();
-        console.log('Sync:', state);
+        console.log('🔄 Presence sync:', state);
         
-        Object.keys(state).forEach(key => {
-          const presences = state[key];
-          if (presences?.[0] && presences[0].user_id !== userId.current && !presences[0].user_id.includes('bot')) {
-            const user = presences[0];
+        // Process all users in presence state
+        Object.entries(state).forEach(([key, presences]) => {
+          const presence = presences[0]; // Get first presence
+          if (presence && presence.user_id && presence.user_id !== userId.current) {
+            // Don't add bots from presence (they're already added statically)
+            if (!presence.user_id.includes('bot')) {
+              console.log('👤 Adding user from sync:', presence.user_id);
+              const user: User = {
+                user_id: presence.user_id,
+                color: presence.color || '#00ffff',
+                position: presence.position
+              };
+              addUserToMap(user);
+              setUsers(prev => ({ ...prev, [user.user_id]: user }));
+            }
+          }
+        });
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('👋 User joined:', key, newPresences);
+        newPresences.forEach((presence: any) => {
+          if (presence.user_id !== userId.current && !presence.user_id.includes('bot')) {
+            const user: User = {
+              user_id: presence.user_id,
+              color: presence.color || '#00ffff',
+              position: presence.position
+            };
             addUserToMap(user);
             setUsers(prev => ({ ...prev, [user.user_id]: user }));
           }
         });
       })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
-        console.log('Join:', newPresences);
-        newPresences.forEach((user: User) => {
-          if (user.user_id !== userId.current && !user.user_id.includes('bot')) {
-            addUserToMap(user);
-            setUsers(prev => ({ ...prev, [user.user_id]: user }));
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('👋 User left:', key, leftPresences);
+        leftPresences.forEach((presence: any) => {
+          if (presence.user_id !== userId.current && !presence.user_id.includes('bot')) {
+            // Remove user from map
+            if (markers.current[presence.user_id]) {
+              markers.current[presence.user_id].remove();
+              delete markers.current[presence.user_id];
+            }
+            setUsers(prev => {
+              const updated = { ...prev };
+              delete updated[presence.user_id];
+              return updated;
+            });
           }
         });
       })
@@ -187,6 +242,7 @@ const MapContainer: React.FC = () => {
   const addUserToMap = (user: User) => {
     if (!map.current) return;
     
+    // Remove existing marker if any
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].remove();
     }
@@ -197,14 +253,15 @@ const MapContainer: React.FC = () => {
     el.style.borderRadius = '50%';
     el.style.border = '3px solid white';
     
+    // Color coding
     if (user.user_id === userId.current) {
-      el.style.backgroundColor = '#00ff00';
+      el.style.backgroundColor = '#00ff00'; // Green for current user
       el.style.boxShadow = '0 0 40px #00ff00';
     } else if (user.user_id.includes('bot')) {
-      el.style.backgroundColor = '#ff00ff';
+      el.style.backgroundColor = '#ff00ff'; // Magenta for bots
       el.style.boxShadow = '0 0 40px #ff00ff';
     } else {
-      el.style.backgroundColor = '#00ffff';
+      el.style.backgroundColor = '#00ffff'; // Cyan for other users
       el.style.boxShadow = '0 0 40px #00ffff';
     }
 
@@ -225,7 +282,7 @@ const MapContainer: React.FC = () => {
     setUsers(prev => ({ ...prev, [user.user_id]: user }));
   };
 
-  // Update connections
+  // Update connections when users change
   useEffect(() => {
     if (!map.current) return;
     
@@ -234,7 +291,7 @@ const MapContainer: React.FC = () => {
 
     const features = [];
     
-    // Connect all users
+    // Connect all users to each other
     for (let i = 0; i < userList.length; i++) {
       for (let j = i + 1; j < userList.length; j++) {
         features.push({
@@ -258,6 +315,48 @@ const MapContainer: React.FC = () => {
       });
     }
   }, [users]);
+
+  // Track position updates
+  useEffect(() => {
+    if (!channel.current) return;
+
+    const interval = setInterval(() => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const updatedPosition = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+
+            // Update presence with new position
+            channel.current.track({
+              user_id: userId.current,
+              color: '#00ff00',
+              position: updatedPosition,
+              online_at: new Date().toISOString()
+            });
+
+            // Update local state
+            setUsers(prev => ({
+              ...prev,
+              [userId.current]: {
+                ...prev[userId.current],
+                position: updatedPosition
+              }
+            }));
+
+            // Update marker
+            if (markers.current[userId.current]) {
+              markers.current[userId.current].setLngLat([updatedPosition.lng, updatedPosition.lat]);
+            }
+          }
+        );
+      }
+    }, 5000); // Update every 5 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div ref={mapContainer} className="w-full h-screen bg-black" />
