@@ -1,19 +1,11 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { supabase } from "../../services/supabase";
+import { getStaticBots, User } from "../../utils/botSystem";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken =
   "pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g";
-
-interface User {
-  user_id: string;
-  color: string;
-  position: {
-    lat: number;
-    lng: number;
-  };
-}
 
 const MapContainer: React.FC = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -23,7 +15,7 @@ const MapContainer: React.FC = () => {
   const userId = useRef(`user-${Date.now()}`);
   const channel = useRef<any>(null);
 
-  /** 🧩 Create premium glowing marker */
+  /** 🟢 Creează marker premium */
   const createMarkerElement = useCallback((user: User) => {
     const el = document.createElement("div");
     el.style.cssText = `
@@ -49,7 +41,7 @@ const MapContainer: React.FC = () => {
     return el;
   }, []);
 
-  /** 🧩 Add or update marker */
+  /** 🟢 Adaugă / update marker */
   const upsertMarker = useCallback(
     (user: User) => {
       if (!map.current) return;
@@ -72,7 +64,7 @@ const MapContainer: React.FC = () => {
     [createMarkerElement]
   );
 
-  /** 🧩 Draw connections between users (debounced) */
+  /** 🟢 Conexiuni între useri */
   const updateConnections = useCallback(
     debounce((userList: User[]) => {
       if (!map.current || userList.length < 2) return;
@@ -101,7 +93,7 @@ const MapContainer: React.FC = () => {
     []
   );
 
-  /** 🧩 Setup layers */
+  /** 🟢 Setup linii de conexiune */
   const setupMapLayers = useCallback(() => {
     if (!map.current) return;
 
@@ -141,7 +133,7 @@ const MapContainer: React.FC = () => {
     }
   }, []);
 
-  /** 🧩 Setup realtime */
+  /** 🟢 Setup realtime cu Supabase */
   const setupRealtime = useCallback(() => {
     if (channel.current) channel.current.unsubscribe();
 
@@ -158,7 +150,7 @@ const MapContainer: React.FC = () => {
       .subscribe();
   }, [upsertMarker, updateConnections]);
 
-  /** 🧩 Init map */
+  /** 🟢 Init map */
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -171,29 +163,14 @@ const MapContainer: React.FC = () => {
       antialias: true,
       maxZoom: 18,
       minZoom: 10,
-      preserveDrawingBuffer: false,
     });
 
     map.current.on("load", () => {
       setupMapLayers();
 
-      // Static demo users
-      const staticUsers: Record<string, User> = {
-        "bot-alpha": {
-          user_id: "bot-alpha",
-          color: "#ff00ff",
-          position: { lat: 44.4268, lng: 26.1025 },
-        },
-        "bot-beta": {
-          user_id: "bot-beta",
-          color: "#ff00ff",
-          position: { lat: 44.425, lng: 26.105 },
-        },
-        "bot-gamma": {
-          user_id: "bot-gamma",
-          color: "#ff00ff",
-          position: { lat: 44.429, lng: 26.103 },
-        },
+      // 🔹 Boți + user curent
+      const staticUsers = {
+        ...getStaticBots(),
         [userId.current]: {
           user_id: userId.current,
           color: "#00ff88",
@@ -207,7 +184,7 @@ const MapContainer: React.FC = () => {
       updateConnections(Object.values(users.current));
       setupRealtime();
 
-      // GPS update
+      // 🔹 GPS update pentru user curent
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
@@ -245,9 +222,9 @@ const MapContainer: React.FC = () => {
   return <div ref={mapContainer} className="w-full h-screen bg-black" />;
 };
 
-/** Utility: Simple debounce */
+/** Utility: debounce cross-platform */
 function debounce(fn: (...args: any[]) => void, delay: number) {
-  let timeout: NodeJS.Timeout;
+  let timeout: ReturnType<typeof setTimeout>;
   return (...args: any[]) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), delay);
