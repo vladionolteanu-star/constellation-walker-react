@@ -202,7 +202,7 @@ const MapContainer: React.FC = () => {
       };
 
       Object.values(staticUsers).forEach(upsertMarker);
-      users.current = staticUsers;
+      users.current = { ...staticUsers };
 
       updateConnections(Object.values(users.current));
       setupRealtime();
@@ -245,10 +245,10 @@ const MapContainer: React.FC = () => {
   return <div ref={mapContainer} className="w-full h-screen bg-black" />;
 };
 
-/** Utility: Debounce */
-function debounce<T extends (...args: any[]) => void>(fn: T, delay: number) {
+/** Utility: Simple debounce */
+function debounce(fn: (...args: any[]) => void, delay: number) {
   let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
+  return (...args: any[]) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), delay);
   };
