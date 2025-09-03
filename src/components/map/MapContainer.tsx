@@ -43,7 +43,7 @@ const MapContainer: React.FC = () => {
 
   const upsertMarker = useCallback(
     (user: User) => {
-      if (!map.current || !user.position) return;
+      if (!map.current || !user?.position?.lat || !user?.position?.lng) return;
 
       if (markers.current[user.user_id]) {
         markers.current[user.user_id].setLngLat([
@@ -73,7 +73,7 @@ const MapContainer: React.FC = () => {
       const features = [];
       for (let i = 0; i < userList.length; i++) {
         for (let j = i + 1; j < userList.length; j++) {
-          if (userList[i].position && userList[j].position) {
+          if (userList[i]?.position && userList[j]?.position) {
             features.push({
               type: "Feature",
               geometry: {
@@ -133,19 +133,30 @@ const MapContainer: React.FC = () => {
   }, []);
 
   const setupRealtime = useCallback(() => {
-    if (channel.current) channel.current.unsubscribe();
+    if (channel.current) {
+      channel.current.unsubscribe();
+      channel.current = null;
+    }
 
-    channel.current = supabase
-      .channel("user-tracking")
-      .on("presence", { event: "join" }, ({ newPresences }) => {
-        newPresences.forEach((user: User) => {
-          if (user.user_id !== userId.current && !user.user_id.includes("bot")) {
-            upsertMarker(user);
-            updateConnections(Object.values(users.current));
+    setTimeout(() => {
+      channel.current = supabase
+        .channel("user-tracking")
+        .on("presence", { event: "join" }, ({ newPresences }) => {
+          newPresences.forEach((user: User) => {
+            if (user.user_id !== userId.current && !user.user_id.includes("bot")) {
+              upsertMarker(user);
+              updateConnections(Object.values(users.current));
+            }
+          });
+        })
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            console.log("Supabase channel subscribed");
+          } else {
+            console.error("Supabase subscription failed:", status);
           }
         });
-      })
-      .subscribe();
+    }, 500); // Delay to stabilize connection
   }, [upsertMarker, updateConnections]);
 
   useEffect(() => {
@@ -204,7 +215,10 @@ const MapContainer: React.FC = () => {
     });
 
     return () => {
-      if (channel.current) channel.current.unsubscribe();
+      if (channel.current) {
+        channel.current.unsubscribe();
+        channel.current = null;
+      }
       Object.values(markers.current).forEach((m) => m.remove());
       markers.current = {};
       if (map.current) {
