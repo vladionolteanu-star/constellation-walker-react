@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback, useMemo } from "react";
 import mapboxgl from "mapbox-gl";
-import { supabase } from "../services/supabase";
-import { getStaticBots, User, syncUserToSupabase } from "../utils/botSystem";
+import { supabase } from "../../services/supabase";
+import { getStaticBots, User, syncUserToSupabase } from "../../utils/botSystem";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import "mapbox-gl/dist/mapbox-gl.css";
 
