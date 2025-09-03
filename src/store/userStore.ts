@@ -29,11 +29,10 @@ interface UserState {
   setError: (error: string | null) => void;
 }
 
-// Conditionally apply devtools only in development
-const useUserStore = create<UserState>()(
+export const useUserStore = create<UserState>()(
   process.env.NODE_ENV === 'development'
     ? devtools(
-        (set, get) => ({
+        (set) => ({
           currentUser: null,
           otherUsers: [],
           isLoading: true,
@@ -106,7 +105,7 @@ const useUserStore = create<UserState>()(
         }),
         { name: 'UserStore' }
       )
-    : (set, get) => ({
+    : (set) => ({
         currentUser: null,
         otherUsers: [],
         isLoading: true,
@@ -178,5 +177,3 @@ const useUserStore = create<UserState>()(
         },
       })
 );
-
-export { useUserStore };
