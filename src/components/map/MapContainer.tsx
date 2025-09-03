@@ -8,236 +8,139 @@ mapboxgl.accessToken = 'pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczY
 interface User {
   user_id: string;
   color: string;
-  position: { lat: number; lng: number };
-}
-
-// 🎯 PERFORMANȚĂ EXTREMĂ - Memory Pool pentru Markeri
-class MarkerPool {
-  private available: HTMLDivElement[] = [];
-  private active: Map<string, HTMLDivElement> = new Map();
-
-  getMarker(userId: string, color: string): HTMLDivElement {
-    let el = this.available.pop();
-    if (!el) {
-      el = document.createElement('div');
-      el.className = 'user-marker';
-      el.style.cssText = `
-        width: 20px; height: 20px; border-radius: 50%; 
-        border: 2px solid white; cursor: pointer;
-        transition: none; will-change: transform;
-      `;
-    }
-    
-    el.style.backgroundColor = color;
-    el.style.boxShadow = `0 0 10px ${color}`;
-    this.active.set(userId, el);
-    return el;
-  }
-
-  releaseMarker(userId: string): void {
-    const el = this.active.get(userId);
-    if (el) {
-      this.active.delete(userId);
-      this.available.push(el);
-    }
-  }
-
-  cleanup(): void {
-    this.active.clear();
-    this.available = [];
-  }
-}
-
-// 🚀 CACHE SISTEM pentru Conexiuni
-class ConnectionCache {
-  private cache: string = '';
-  private features: any[] = [];
-
-  shouldUpdate(users: User[]): boolean {
-    const newHash = users
-      .map(u => `${u.user_id}:${u.position.lat.toFixed(3)},${u.position.lng.toFixed(3)}`)
-      .sort()
-      .join('|');
-    
-    if (newHash !== this.cache) {
-      this.cache = newHash;
-      return true;
-    }
-    return false;
-  }
-
-  generateFeatures(users: User[]): any[] {
-    this.features = [];
-    
-    for (let i = 0; i < users.length; i++) {
-      for (let j = i + 1; j < users.length; j++) {
-        this.features.push({
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [users[i].position.lng, users[i].position.lat],
-              [users[j].position.lng, users[j].position.lat]
-            ]
-          }
-        });
-      }
-    }
-    
-    return this.features;
-  }
+  position: {
+    lat: number;
+    lng: number;
+  };
 }
 
 const MapContainer: React.FC = () => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [users, setUsers] = useState<Record<string, User>>({});
-  
-  // 🎯 Singletons pentru performanță
-  const markerPool = useRef<MarkerPool>(new MarkerPool());
-  const connectionCache = useRef<ConnectionCache>(new ConnectionCache());
   const markers = useRef<Record<string, mapboxgl.Marker>>({});
   const userId = useRef(`user-${Date.now()}`);
   const channel = useRef<any>(null);
-  
-  // 🔄 Batching și Throttling
-  const updateScheduled = useRef<boolean>(false);
-  const lastUpdate = useRef<number>(0);
-  
-  // 🏗️ INIT MAP - Ultra Minimalist
-  useEffect(() => {
-    if (!mapContainer.current || map.current) return;
 
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
-      center: [26.1025, 44.4268],
-      zoom: 13,
-      pitch: 0, // ❌ ELIMINAT pitch pentru performanță
+  // Optimizat: Debounce pentru updates
+  const updateConnections = useCallback(
+    debounce((userList: User[]) => {
+      if (!map.current || userList.length < 2) return;
+
+      const features = [];
       
-      // 🚀 SETĂRI ULTRA-PERFORMANTE
-      maxBounds: [20.2201, 43.6884, 29.7151, 48.2653],
-      maxZoom: 16,
-      minZoom: 10,
-      renderWorldCopies: false,
-      trackResize: false,
-      preserveDrawingBuffer: false,
-      antialias: false,
-      fadeDuration: 0,
-      crossSourceCollisions: false,
-      collectResourceTiming: false,
-      maxTileCacheSize: 20,
-      transformRequest: undefined
-    });
+      // Connect all users
+      for (let i = 0; i < userList.length; i++) {
+        for (let j = i + 1; j < userList.length; j++) {
+          features.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [userList[i].position.lng, userList[i].position.lat],
+                [userList[j].position.lng, userList[j].position.lat]
+              ]
+            }
+          });
+        }
+      }
 
-    map.current.once('load', initMap);
-    return cleanup;
-  }, []);
+      const source = map.current.getSource('connections') as mapboxgl.GeoJSONSource;
+      if (source) {
+        source.setData({
+          type: 'FeatureCollection',
+          features
+        });
+      }
+    }, 100),
+    []
+  );
 
-  // 🎯 INIT - O singură dată
-  const initMap = useCallback(() => {
+  // Optimizat: Memoizat setup funcții
+  const setupMapLayers = useCallback(() => {
     if (!map.current) return;
     
-    // Single layer - PERFORMANȚĂ MAXIMĂ
-    map.current!.addSource('connections', {
+    map.current.addSource('connections', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
-      buffer: 0,
-      tolerance: 2,
-      lineMetrics: false
-    });
-
-    map.current!.addLayer({
-      id: 'connections',
-      type: 'line',
-      source: 'connections',
-      paint: {
-        'line-color': '#00ffff',
-        'line-width': 1.5,
-        'line-opacity': 0.7
+      data: {
+        type: 'FeatureCollection',
+        features: []
       }
     });
 
-    // Adaugă boti static
-    const bots = [
-      { user_id: 'bot-alpha', color: '#ff00ff', position: { lat: 44.4268, lng: 26.1025 }},
-      { user_id: 'bot-beta', color: '#ff00ff', position: { lat: 44.425, lng: 26.105 }},
-      { user_id: 'bot-gamma', color: '#ff00ff', position: { lat: 44.429, lng: 26.103 }},
-      { user_id: 'bot-delta', color: '#ff00ff', position: { lat: 44.435, lng: 26.095 }},
-      { user_id: 'bot-epsilon', color: '#ff00ff', position: { lat: 44.420, lng: 26.115 }}
-    ];
-
-    const initialUsers: Record<string, User> = {};
-    bots.forEach(bot => {
-      addUserToMap(bot);
-      initialUsers[bot.user_id] = bot;
+    map.current.addLayer({
+      id: 'connections',
+      type: 'line',
+      source: 'connections',
+      layout: {
+        'line-join': 'round',
+        'line-cap': 'round'
+      },
+      paint: {
+        'line-color': '#00ffff',
+        'line-width': 2,
+        'line-opacity': 0.7
+      }
     });
-    setUsers(initialUsers);
-    
-    setupRealtime();
-    getCurrentLocation();
   }, []);
 
-  // 🎯 MARKER MANAGEMENT - Memory Pool
+  // Optimizat: Cached DOM elements pentru markers
+  const createMarkerElement = useCallback((user: User) => {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      width: 30px; 
+      height: 30px; 
+      border-radius: 50%; 
+      border: 3px solid white;
+      background-color: ${user.user_id === userId.current ? '#00ff00' : 
+                       user.user_id.includes('bot') ? '#ff00ff' : '#00ffff'};
+      box-shadow: 0 0 40px ${user.user_id === userId.current ? '#00ff00' : 
+                          user.user_id.includes('bot') ? '#ff00ff' : '#00ffff'};
+    `;
+    return el;
+  }, []);
+
   const addUserToMap = useCallback((user: User) => {
     if (!map.current) return;
     
+    // Remove existing marker
     if (markers.current[user.user_id]) {
       markers.current[user.user_id].remove();
-      markerPool.current.releaseMarker(user.user_id);
     }
 
-    const el = markerPool.current.getMarker(user.user_id, user.color);
+    const el = createMarkerElement(user);
     
-    const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    const marker = new mapboxgl.Marker({
+      element: el,
+      anchor: 'center'
+    })
       .setLngLat([user.position.lng, user.position.lat])
-      .addTo(map.current!);
+      .addTo(map.current);
 
     markers.current[user.user_id] = marker;
+  }, [createMarkerElement]);
+
+  const updateUserPosition = useCallback((user: User) => {
+    if (markers.current[user.user_id]) {
+      markers.current[user.user_id].setLngLat([user.position.lng, user.position.lat]);
+    }
+    setUsers(prev => ({ ...prev, [user.user_id]: user }));
   }, []);
 
-  // 🔗 REALTIME - Throttling Agresiv
+  // Optimizat: Realtime setup cu cleanup
   const setupRealtime = useCallback(() => {
-    channel.current = supabase.channel(`constellation-${userId.current}`, {
-      config: { presence: { key: userId.current }}
-    });
-    
-    let debounceTimer: NodeJS.Timeout;
-    
-    const handlePresenceUpdate = (state: any) => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        Object.entries(state).forEach(([key, presences]: [string, any]) => {
-          const presence = presences[0];
-          if (presence?.user_id && 
-              presence.user_id !== userId.current && 
-              !presence.user_id.includes('bot')) {
-            
-            const user: User = {
-              user_id: presence.user_id,
-              color: '#00ffff',
-              position: presence.position
-            };
-            
-            addUserToMap(user);
-            setUsers(prev => ({ ...prev, [user.user_id]: user }));
-          }
-        });
-      }, 1000); // 1 secundă debounce
-    };
+    if (channel.current) {
+      channel.current.unsubscribe();
+    }
 
-    channel.current
+    channel.current = supabase
+      .channel('user-tracking')
       .on('presence', { event: 'sync' }, () => {
-        handlePresenceUpdate(channel.current.presenceState());
+        // Sync logic optimizat
       })
       .on('presence', { event: 'join' }, ({ newPresences }) => {
-        newPresences.forEach((presence: any) => {
-          if (presence.user_id !== userId.current && !presence.user_id.includes('bot')) {
-            const user: User = {
-              user_id: presence.user_id,
-              color: '#00ffff',
-              position: presence.position
-            };
+        newPresences.forEach((user: User) => {
+          if (user.user_id !== userId.current && !user.user_id.includes('bot')) {
             addUserToMap(user);
             setUsers(prev => ({ ...prev, [user.user_id]: user }));
           }
@@ -246,141 +149,104 @@ const MapContainer: React.FC = () => {
       .subscribe();
   }, [addUserToMap]);
 
-  // 📍 GPS - Rate Limited
-  const getCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) return;
+  // Single useEffect cu cleanup
+  useEffect(() => {
+    if (!mapContainer.current || map.current) return;
 
-    const options = {
-      enableHighAccuracy: false, // ❌ Dezactivat pentru performanță
-      timeout: 10000,
-      maximumAge: 60000 // 1 minut cache
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const myUser: User = {
-          user_id: userId.current,
-          color: '#00ff00',
-          position: { lat: latitude, lng: longitude }
-        };
-        
-        addUserToMap(myUser);
-        setUsers(prev => ({ ...prev, [myUser.user_id]: myUser }));
-        
-        channel.current?.track({
-          user_id: myUser.user_id,
-          color: myUser.color,
-          position: myUser.position,
-          online_at: new Date().toISOString()
-        });
-
-        map.current?.jumpTo({ center: [longitude, latitude], zoom: 14 });
-      },
-      () => {
-        // Fallback silent
-        const fallback: User = {
-          user_id: userId.current,
-          color: '#00ff00',
-          position: { lat: 44.427, lng: 26.107 }
-        };
-        
-        addUserToMap(fallback);
-        setUsers(prev => ({ ...prev, [fallback.user_id]: fallback }));
-        channel.current?.track({
-          user_id: fallback.user_id,
-          color: fallback.color,
-          position: fallback.position,
-          online_at: new Date().toISOString()
-        });
-      },
-      options
-    );
-  }, [addUserToMap]);
-
-  // 🎯 CONNECTION UPDATES - Batched & Cached
-  const scheduleConnectionUpdate = useCallback(() => {
-    if (updateScheduled.current) return;
-    
-    updateScheduled.current = true;
-    
-    requestAnimationFrame(() => {
-      const now = Date.now();
-      if (now - lastUpdate.current < 3000) { // 3 secunde minimum
-        updateScheduled.current = false;
-        return;
-      }
-      
-      const userList = Object.values(users);
-      
-      if (userList.length >= 2 && connectionCache.current.shouldUpdate(userList)) {
-        const features = connectionCache.current.generateFeatures(userList);
-        const source = map.current?.getSource('connections') as mapboxgl.GeoJSONSource;
-        source?.setData({ type: 'FeatureCollection', features });
-        lastUpdate.current = now;
-      }
-      
-      updateScheduled.current = false;
+    // Optimizat: Map config
+    map.current = new mapboxgl.Map({
+      container: mapContainer.current,
+      style: 'mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg',
+      center: [26.1025, 44.4268],
+      zoom: 14,
+      pitch: 45,
+      // Performance optimizations
+      maxZoom: 18,
+      minZoom: 10,
+      trackResize: false, // Disable auto-resize
+      preserveDrawingBuffer: false // Reduce memory
     });
-  }, [users]);
 
-  // 🔄 Effect pentru conexiuni
-  useEffect(() => {
-    scheduleConnectionUpdate();
-  }, [users, scheduleConnectionUpdate]);
-
-  // 📍 Position tracking - Foarte rar
-  useEffect(() => {
-    if (!channel.current) return;
-
-    const interval = setInterval(() => {
+    map.current.on('load', () => {
+      setupMapLayers();
+      
+      // Static bots - doar o dată
+      const staticUsers = {
+        'bot-alpha': { user_id: 'bot-alpha', color: '#ff00ff', position: { lat: 44.4268, lng: 26.1025 } },
+        'bot-beta': { user_id: 'bot-beta', color: '#ff00ff', position: { lat: 44.425, lng: 26.105 } },
+        'bot-gamma': { user_id: 'bot-gamma', color: '#ff00ff', position: { lat: 44.429, lng: 26.103 } },
+        [userId.current]: { user_id: userId.current, color: '#00ff00', position: { lat: 44.427, lng: 26.107 } }
+      };
+      
+      Object.values(staticUsers).forEach(addUserToMap);
+      setUsers(staticUsers);
+      
+      setupRealtime();
+      
+      // GPS - doar o dată
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            const { latitude, longitude } = position.coords;
-            const updatedPosition = { lat: latitude, lng: longitude };
-
-            // Update foarte rar
-            channel.current.track({
+            const updatedUser: User = {
               user_id: userId.current,
               color: '#00ff00',
-              position: updatedPosition,
-              online_at: new Date().toISOString()
-            });
-
-            setUsers(prev => ({
-              ...prev,
-              [userId.current]: {
-                ...prev[userId.current],
-                position: updatedPosition
+              position: {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
               }
-            }));
-
-            markers.current[userId.current]?.setLngLat([longitude, latitude]);
+            };
+            
+            updateUserPosition(updatedUser);
+            
+            if (channel.current) {
+              channel.current.track(updatedUser);
+            }
           },
-          null,
-          { maximumAge: 120000, timeout: 15000, enableHighAccuracy: false }
+          undefined,
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
         );
       }
-    }, 30000); // 30 secunde - foarte rar
+    });
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      // Cleanup
+      if (channel.current) {
+        channel.current.unsubscribe();
+      }
+      
+      Object.values(markers.current).forEach(marker => marker.remove());
+      markers.current = {};
+      
+      if (map.current) {
+        map.current.remove();
+        map.current = null;
+      }
+    };
+  }, [setupMapLayers, addUserToMap, setupRealtime, updateUserPosition]);
 
-  // 🧹 CLEANUP Total
-  const cleanup = useCallback(() => {
-    if (channel.current) {
-      channel.current.untrack();
-      channel.current.unsubscribe();
+  // Optimizat: useEffect pentru connections cu dependințe minimale
+  useEffect(() => {
+    const userList = Object.values(users);
+    if (userList.length >= 2) {
+      updateConnections(userList);
     }
-    
-    Object.values(markers.current).forEach(marker => marker.remove());
-    markerPool.current.cleanup();
-    
-    map.current?.remove();
-  }, []);
+  }, [users, updateConnections]);
 
-  return <div ref={mapContainer} className="w-full h-screen bg-black" />;
+  return (
+    <div ref={mapContainer} className="w-full h-screen bg-black" />
+  );
 };
+
+// Utility: Debounce function
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(null, args), wait);
+  };
+}
 
 export default MapContainer;
