@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
-import { supabase } from "../../services/supabase";
-import { getStaticBots, User } from "../../utils/botSystem";
+import { supabase } from "../services/supabase";
+import { getStaticBots, User, syncUserToSupabase } from "../utils/botSystem";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import "mapbox-gl/dist/mapbox-gl.css";
 
@@ -156,7 +156,7 @@ const MapContainer: React.FC = () => {
             console.error("Supabase subscription failed:", status);
           }
         });
-    }, 500); // Delay to stabilize connection
+    }, 500);
   }, [upsertMarker, updateConnections]);
 
   useEffect(() => {
@@ -185,7 +185,10 @@ const MapContainer: React.FC = () => {
         },
       };
 
-      Object.values(staticUsers).forEach(upsertMarker);
+      Object.values(staticUsers).forEach((user) => {
+        upsertMarker(user);
+        syncUserToSupabase(user, channel.current);
+      });
       users.current = { ...staticUsers };
 
       updateConnections(Object.values(users.current));
@@ -205,7 +208,7 @@ const MapContainer: React.FC = () => {
             upsertMarker(updatedUser);
             updateConnections(Object.values(users.current));
             if (channel.current) {
-              channel.current.track(updatedUser);
+              syncUserToSupabase(updatedUser, channel.current);
             }
           },
           (err) => console.error("Geolocation error:", err),
