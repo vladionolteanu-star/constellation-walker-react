@@ -1,110 +1,111 @@
 import { create } from 'zustand'
-import { supabase } from '../services/supabase'
-import { User, Position } from '../types/user.types'
-import { STAR_COLORS } from '../utils/constants'
-import toast from 'react-hot-toast'
+import { devtools } from 'zustand/middleware'
+import { generateUserId, generateStarColor } from '../utils/constants'
+import { ensureUserExists } from '../services/supabase'
 
-interface UserStore {
+interface Position {
+  lat: number
+  lng: number
+}
+
+interface User {
+  id: string
+  color: string
+  position?: Position
+}
+
+interface UserState {
   currentUser: User | null
   otherUsers: User[]
   isLoading: boolean
+  error: string | null
+  
   initializeUser: () => Promise<void>
-  updatePosition: (position: Position) => Promise<void>
+  updatePosition: (position: Position) => void
   addOtherUser: (user: User) => void
   removeOtherUser: (userId: string) => void
+  setOtherUsers: (users: User[]) => void
+  clearOtherUsers: () => void
+  setLoading: (loading: boolean) => void
+  setError: (error: string | null) => void
 }
 
-const generateStarColor = () => 
-  STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)]
+export const useUserStore = create<UserState>()(
+  devtools(
+    (set, get) => ({
+      currentUser: null,
+      otherUsers: [],
+      isLoading: true,
+      error: null,
 
-export const useUserStore = create<UserStore>((set, get) => ({
-  currentUser: null,
-  otherUsers: [],
-  isLoading: true,
-
-  initializeUser: async () => {
-    try {
-      const userId = crypto.randomUUID()
-      const color = generateStarColor()
-      
-      set({
-        currentUser: {
-          id: userId,
-          color,
-          position: null
-        },
-        isLoading: false
-      })
-
-      // Subscribe to presence channel
-      const channel = supabase.channel('online-users')
-      
-      channel
-        .on('presence', { event: 'sync' }, () => {
-          const state = channel.presenceState()
-          const others = Object.values(state)
-            .flat()
-            .filter((u: any) => u.user_id !== userId)
-            .map((u: any) => ({
-              id: u.user_id,
-              color: u.color,
-              position: u.position
-            }))
+      initializeUser: async () => {
+        try {
+          set({ isLoading: true, error: null })
           
-          set({ otherUsers: others })
-        })
-        .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await channel.track({
-              user_id: userId,
-              color,
-              position: null
-            })
+          let userId = localStorage.getItem('userId')
+          let userColor = localStorage.getItem('userColor')
+          
+          if (!userId || !userColor) {
+            userId = generateUserId()
+            userColor = generateStarColor()
+            localStorage.setItem('userId', userId)
+            localStorage.setItem('userColor', userColor)
           }
-        })
 
-      toast.success('🌟 You are now a star in the constellation')
-    } catch (error) {
-      console.error('Failed to initialize user:', error)
-      toast.error('Failed to connect to constellation')
-      set({ isLoading: false })
-    }
-  },
-
-  updatePosition: async (position) => {
-    const { currentUser } = get()
-    if (!currentUser) return
-
-    try {
-      // Update local state
-      set({
-        currentUser: {
-          ...currentUser,
-          position
+          await ensureUserExists(userId, userColor)
+          
+          set({
+            currentUser: { id: userId, color: userColor },
+            isLoading: false
+          })
+        } catch (error) {
+          console.error('Failed to initialize user:', error)
+          set({ 
+            error: error instanceof Error ? error.message : 'Failed to initialize',
+            isLoading: false 
+          })
         }
-      })
+      },
 
-      // Update presence state
-      await supabase.channel('online-users').track({
-        user_id: currentUser.id,
-        color: currentUser.color,
-        position,
-        last_seen: new Date().toISOString()
-      })
-    } catch (error) {
-      console.error('Failed to update position:', error)
-    }
-  },
+      updatePosition: (position) => {
+        set((state) => ({
+          currentUser: state.currentUser 
+            ? { ...state.currentUser, position }
+            : state.currentUser
+        }))
+      },
 
-  addOtherUser: (user) => {
-    set((state) => ({
-      otherUsers: [...state.otherUsers.filter(u => u.id !== user.id), user]
-    }))
-  },
+      addOtherUser: (user) => {
+        set((state) => ({
+          otherUsers: [
+            ...state.otherUsers.filter(u => u.id !== user.id),
+            user
+          ]
+        }))
+      },
 
-  removeOtherUser: (userId) => {
-    set((state) => ({
-      otherUsers: state.otherUsers.filter(u => u.id !== userId)
-    }))
-  }
-}))
+      removeOtherUser: (userId) => {
+        set((state) => ({
+          otherUsers: state.otherUsers.filter(u => u.id !== userId)
+        }))
+      },
+
+      setOtherUsers: (users) => {
+        set({ otherUsers: users })
+      },
+
+      clearOtherUsers: () => {
+        set({ otherUsers: [] })
+      },
+
+      setLoading: (loading) => {
+        set({ isLoading: loading })
+      },
+
+      setError: (error) => {
+        set({ error })
+      }
+    }),
+    { name: 'UserStore' }
+  )
+)
