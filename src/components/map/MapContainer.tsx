@@ -16,7 +16,6 @@ const MapContainer: React.FC = () => {
   const userId = useRef(`user-${Date.now()}`);
   const channel = useRef<RealtimeChannel | null>(null);
 
-  /** 🟢 Creează marker premium */
   const createMarkerElement = useCallback((user: User) => {
     const el = document.createElement("div");
     el.style.cssText = `
@@ -42,10 +41,9 @@ const MapContainer: React.FC = () => {
     return el;
   }, []);
 
-  /** 🟢 Adaugă / update marker */
   const upsertMarker = useCallback(
     (user: User) => {
-      if (!map.current) return;
+      if (!map.current || !user.position) return;
 
       if (markers.current[user.user_id]) {
         markers.current[user.user_id].setLngLat([
@@ -65,7 +63,6 @@ const MapContainer: React.FC = () => {
     [createMarkerElement]
   );
 
-  /** 🟢 Conexiuni între useri */
   const updateConnections = useCallback(
     debounce((userList: User[]) => {
       if (!map.current || userList.length < 2) return;
@@ -76,16 +73,18 @@ const MapContainer: React.FC = () => {
       const features = [];
       for (let i = 0; i < userList.length; i++) {
         for (let j = i + 1; j < userList.length; j++) {
-          features.push({
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates: [
-                [userList[i].position.lng, userList[i].position.lat],
-                [userList[j].position.lng, userList[j].position.lat],
-              ],
-            },
-          });
+          if (userList[i].position && userList[j].position) {
+            features.push({
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [userList[i].position.lng, userList[i].position.lat],
+                  [userList[j].position.lng, userList[j].position.lat],
+                ],
+              },
+            });
+          }
         }
       }
 
@@ -94,7 +93,6 @@ const MapContainer: React.FC = () => {
     []
   );
 
-  /** 🟢 Setup linii de conexiune */
   const setupMapLayers = useCallback(() => {
     if (!map.current) return;
 
@@ -134,7 +132,6 @@ const MapContainer: React.FC = () => {
     }
   }, []);
 
-  /** 🟢 Setup realtime cu Supabase */
   const setupRealtime = useCallback(() => {
     if (channel.current) channel.current.unsubscribe();
 
@@ -151,7 +148,6 @@ const MapContainer: React.FC = () => {
       .subscribe();
   }, [upsertMarker, updateConnections]);
 
-  /** 🟢 Init map */
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -169,7 +165,6 @@ const MapContainer: React.FC = () => {
     map.current.on("load", () => {
       setupMapLayers();
 
-      // 🔹 Boți + user curent
       const staticUsers = {
         ...getStaticBots(),
         [userId.current]: {
@@ -185,7 +180,6 @@ const MapContainer: React.FC = () => {
       updateConnections(Object.values(users.current));
       setupRealtime();
 
-      // 🔹 GPS update pentru user curent
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
@@ -223,7 +217,6 @@ const MapContainer: React.FC = () => {
   return <div ref={mapContainer} className="w-full h-screen bg-black" />;
 };
 
-/** Utility: debounce cross-platform */
 function debounce(fn: (...args: any[]) => void, delay: number) {
   let timeout: ReturnType<typeof setTimeout>;
   return (...args: any[]) => {
