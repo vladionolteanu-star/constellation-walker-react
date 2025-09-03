@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { supabase } from "../../services/supabase";
 import { getStaticBots, User } from "../../utils/botSystem";
+import { RealtimeChannel } from "@supabase/supabase-js";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken =
@@ -13,7 +14,7 @@ const MapContainer: React.FC = () => {
   const markers = useRef<Record<string, mapboxgl.Marker>>({});
   const users = useRef<Record<string, User>>({});
   const userId = useRef(`user-${Date.now()}`);
-  const channel = useRef<any>(null);
+  const channel = useRef<RealtimeChannel | null>(null);
 
   /** 🟢 Creează marker premium */
   const createMarkerElement = useCallback((user: User) => {
@@ -69,6 +70,9 @@ const MapContainer: React.FC = () => {
     debounce((userList: User[]) => {
       if (!map.current || userList.length < 2) return;
 
+      const source = map.current.getSource("connections") as mapboxgl.GeoJSONSource;
+      if (!source) return;
+
       const features = [];
       for (let i = 0; i < userList.length; i++) {
         for (let j = i + 1; j < userList.length; j++) {
@@ -85,10 +89,7 @@ const MapContainer: React.FC = () => {
         }
       }
 
-      const source = map.current.getSource("connections") as mapboxgl.GeoJSONSource;
-      if (source) {
-        source.setData({ type: "FeatureCollection", features });
-      }
+      source.setData({ type: "FeatureCollection", features });
     }, 150),
     []
   );
@@ -202,7 +203,7 @@ const MapContainer: React.FC = () => {
               channel.current.track(updatedUser);
             }
           },
-          undefined,
+          (err) => console.error("Geolocation error:", err),
           { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
         );
       }
