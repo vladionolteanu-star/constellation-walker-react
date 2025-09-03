@@ -1,27 +1,28 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  optimizeDeps: {
-    include: ['mapbox-gl', 'supercluster'],
-    exclude: []
-  },
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
-          'mapbox': ['mapbox-gl', 'react-map-gl', 'supercluster'],
+          'mapbox': ['mapbox-gl'],
           'vendor': ['react', 'react-dom'],
-          'supabase': ['@supabase/supabase-js'],
+          'supabase': ['@supabase/supabase-js']
         }
       }
     },
     sourcemap: false,
-    minify: 'esbuild',
-    target: 'es2020'
+    chunkSizeWarningLimit: 2000
   },
-  esbuild: {
-    logOverride: { 'this-is-undefined-in-esm': 'silent' }
+  optimizeDeps: {
+    exclude: ['mapbox-gl']
+  },
+  resolve: {
+    alias: {
+      '@': '/src'
+    }
   }
 })
