@@ -1,467 +1,251 @@
-import React, { useEffect, useRef, useCallback } from "react";
-import mapboxgl from "mapbox-gl";
-import { supabase } from "../../services/supabase";
-import { getStaticBots, syncUserToSupabase } from "../../utils/botSystem";
-import type { User } from "../../utils/botSystem";
-import type { RealtimeChannel } from "@supabase/supabase-js";
-import "mapbox-gl/dist/mapbox-gl.css";
+import { useEffect, useRef, useState } from 'react'
+import Map, { Marker, MapRef } from 'react-map-gl'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Navigation, Navigation2 } from 'lucide-react'
+import { useMapStore } from '../../store/mapStore'
+import { useUserStore } from '../../store/userStore'
+import UserMarker from './UserMarker'
+import ConstellationLines from './ConstellationLines'
+import EchoMarker from '../Echo/EchoMarker'
+import { MAPBOX_TOKEN, MAPBOX_STYLE } from '../../utils/constants'
 
-mapboxgl.accessToken =
-  "pk.eyJ1IjoidmxhZHN0YXIiLCJhIjoiY21lcXVrZWRkMDR2MDJrczczYTFvYTBvMiJ9.H36WPQ21h1CTjbEb32AT1g";
+export default function MapContainer() {
+  const mapRef = useRef<MapRef>(null)
+  const { viewport, setViewport, markers } = useMapStore()
+  const { currentUser, otherUsers } = useUserStore()
+  const [isFollowing, setIsFollowing] = useState(true)
+  const [showReturnButton, setShowReturnButton] = useState(false)
 
-// Configurație artistică
-const ARTISTIC_CONFIG = {
-  colors: {
-    self: {
-      primary: "#a8ff78",
-      glow: "rgba(168, 255, 120, 0.6)",
-      pulse: "rgba(168, 255, 120, 0.3)"
-    },
-    bot: {
-      primary: "#ff6b9d",
-      glow: "rgba(255, 107, 157, 0.5)",
-      pulse: "rgba(255, 107, 157, 0.2)"
-    },
-    user: {
-      primary: "#66d9ef",
-      glow: "rgba(102, 217, 239, 0.6)",
-      pulse: "rgba(102, 217, 239, 0.3)"
-    },
-    connection: {
-      gradient: ["#a8ff78", "#78ffd6", "#66d9ef", "#ff6b9d"],
-      opacity: 0.4
-    }
-  },
-  animation: {
-    pulseDuration: 3000,
-    breathDuration: 4000,
-    connectionFlow: 6000
-  }
-};
-
-// Funcție debounce simplă
-function debounce<T extends (...args: any[]) => void>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null;
-  
-  return function executedFunction(...args: Parameters<T>) {
-    const later = () => {
-      timeout = null;
-      func(...args);
-    };
-    
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    timeout = setTimeout(later, wait);
-  };
-}
-
-const MapContainer: React.FC = () => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const markers = useRef<Map<string, mapboxgl.Marker>>(new Map());
-  const users = useRef<Map<string, User>>(new Map());
-  const userId = useRef<string>(`user-${Date.now()}`);
-  const channel = useRef<RealtimeChannel | null>(null);
-
-  // Creare element marker artistic
-  const createMarkerElement = useCallback((user: User) => {
-    const el = document.createElement("div");
-    const isBot = user.user_id.includes("bot");
-    const isSelf = user.user_id === userId.current;
-    
-    const config = isSelf 
-      ? ARTISTIC_CONFIG.colors.self 
-      : isBot 
-        ? ARTISTIC_CONFIG.colors.bot 
-        : ARTISTIC_CONFIG.colors.user;
-
-    // Container principal
-    el.className = "marker-container";
-    el.style.cssText = `
-      width: 32px;
-      height: 32px;
-      position: relative;
-    `;
-
-    // Nucleu central
-    const core = document.createElement("div");
-    core.style.cssText = `
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: radial-gradient(circle at 40% 40%, 
-        white 0%, 
-        ${config.primary} 30%, 
-        transparent 70%);
-      border-radius: 50%;
-      filter: blur(0.5px);
-    `;
-
-    // Aură interioară
-    const innerGlow = document.createElement("div");
-    innerGlow.style.cssText = `
-      position: absolute;
-      width: 20px;
-      height: 20px;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: radial-gradient(circle, 
-        ${config.glow} 0%, 
-        transparent 60%);
-      border-radius: 50%;
-      opacity: 0.8;
-    `;
-
-    // Aură exterioară pentru user și boti
-    if (isSelf || isBot) {
-      const outerGlow = document.createElement("div");
-      outerGlow.style.cssText = `
-        position: absolute;
-        width: 32px;
-        height: 32px;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: radial-gradient(circle, 
-          ${config.pulse} 0%, 
-          transparent 70%);
-        border-radius: 50%;
-        opacity: 0.6;
-      `;
-      el.appendChild(outerGlow);
-    }
-
-    el.appendChild(innerGlow);
-    el.appendChild(core);
-
-    return el;
-  }, []);
-
-  // Actualizare marker
-  const upsertMarker = useCallback(
-    (user: User) => {
-      if (!map.current || !user?.position?.lat || !user?.position?.lng) return;
-
-      const existingMarker = markers.current.get(user.user_id);
-      
-      if (existingMarker) {
-        existingMarker.setLngLat([user.position.lng, user.position.lat]);
-      } else {
-        const el = createMarkerElement(user);
-        el.style.opacity = "0";
-        
-        const marker = new mapboxgl.Marker({ 
-          element: el, 
-          anchor: "center"
-        })
-          .setLngLat([user.position.lng, user.position.lat])
-          .addTo(map.current);
-        
-        markers.current.set(user.user_id, marker);
-        
-        // Fade-in
-        requestAnimationFrame(() => {
-          el.style.transition = "opacity 1s ease-in";
-          el.style.opacity = "1";
-        });
-      }
-
-      users.current.set(user.user_id, user);
-    },
-    [createMarkerElement]
-  );
-
-  // Actualizare conexiuni cu debounce
-  const updateConnectionsRaw = useCallback(() => {
-    if (!map.current) return;
-
-    const source = map.current.getSource("connections") as mapboxgl.GeoJSONSource;
-    if (!source) return;
-
-    const userList = Array.from(users.current.values());
-    
-    if (userList.length < 2) {
-      source.setData({ type: "FeatureCollection", features: [] });
-      return;
-    }
-
-    const features: any[] = [];
-    const processedPairs = new Set<string>();
-
-    userList.forEach((userA, i) => {
-      userList.slice(i + 1).forEach((userB) => {
-        const pairId = [userA.user_id, userB.user_id].sort().join("-");
-        
-        if (!processedPairs.has(pairId) && userA.position && userB.position) {
-          processedPairs.add(pairId);
-          
-          const distance = Math.sqrt(
-            Math.pow(userA.position.lat - userB.position.lat, 2) +
-            Math.pow(userA.position.lng - userB.position.lng, 2)
-          );
-          
-          features.push({
-            type: "Feature",
-            properties: {
-              distance: distance,
-              isBot: userA.user_id.includes("bot") || userB.user_id.includes("bot"),
-              isSelf: userA.user_id === userId.current || userB.user_id === userId.current
-            },
-            geometry: {
-              type: "LineString",
-              coordinates: [
-                [userA.position.lng, userA.position.lat],
-                [userB.position.lng, userB.position.lat]
-              ]
-            }
-          });
-        }
-      });
-    });
-
-    source.setData({ type: "FeatureCollection", features: features });
-  }, []);
-
-  // Versiune debounced
-  const updateConnections = useCallback(
-    debounce(updateConnectionsRaw, 150),
-    [updateConnectionsRaw]
-  );
-
-  // Setup layers hartă
-  const setupMapLayers = useCallback(() => {
-    if (!map.current) return;
-
-    if (!map.current.getSource("connections")) {
-      map.current.addSource("connections", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] }
-      });
-
-      map.current.addLayer({
-        id: "connections",
-        type: "line",
-        source: "connections",
-        layout: {
-          "line-join": "round",
-          "line-cap": "round"
-        },
-        paint: {
-          "line-color": [
-            "interpolate",
-            ["linear"],
-            ["get", "distance"],
-            0, ARTISTIC_CONFIG.colors.connection.gradient[0],
-            0.01, ARTISTIC_CONFIG.colors.connection.gradient[1],
-            0.02, ARTISTIC_CONFIG.colors.connection.gradient[2],
-            0.05, ARTISTIC_CONFIG.colors.connection.gradient[3]
-          ],
-          "line-width": [
-            "interpolate",
-            ["exponential", 1.5],
-            ["zoom"],
-            10, 1,
-            15, 2.5,
-            18, 4
-          ],
-          "line-opacity": [
-            "interpolate",
-            ["linear"],
-            ["get", "distance"],
-            0, ARTISTIC_CONFIG.colors.connection.opacity,
-            0.05, ARTISTIC_CONFIG.colors.connection.opacity * 0.3
-          ],
-          "line-blur": 1
-        }
-      });
-
-      // Glow layer
-      map.current.addLayer({
-        id: "connections-glow",
-        type: "line",
-        source: "connections",
-        layout: {
-          "line-join": "round",
-          "line-cap": "round"
-        },
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": [
-            "interpolate",
-            ["exponential", 1.5],
-            ["zoom"],
-            10, 0.5,
-            15, 1,
-            18, 2
-          ],
-          "line-opacity": 0.2,
-          "line-blur": 3
-        }
-      }, "connections");
-    }
-  }, []);
-
-  // Setup realtime
-  const setupRealtime = useCallback(() => {
-    if (channel.current) {
-      channel.current.unsubscribe();
-      channel.current = null;
-    }
-
-    setTimeout(() => {
-      channel.current = supabase
-        .channel("user-tracking")
-        .on("presence", { event: "join" }, ({ newPresences }) => {
-          if (Array.isArray(newPresences)) {
-            newPresences.forEach((presence: any) => {
-              const user = presence as User;
-              if (user.user_id !== userId.current && !user.user_id.includes("bot")) {
-                upsertMarker(user);
-                updateConnections();
-              }
-            });
-          }
-        })
-        .on("presence", { event: "leave" }, ({ leftPresences }) => {
-          if (Array.isArray(leftPresences)) {
-            leftPresences.forEach((presence: any) => {
-              const user = presence as User;
-              const marker = markers.current.get(user.user_id);
-              if (marker) {
-                marker.remove();
-                markers.current.delete(user.user_id);
-                users.current.delete(user.user_id);
-                updateConnections();
-              }
-            });
-          }
-        })
-        .subscribe((status) => {
-          console.log("Supabase status:", status);
-        });
-    }, 500);
-  }, [upsertMarker, updateConnections]);
-
-  // Zona pentru ECHO
-  const prepareEchoSystem = useCallback(() => {
-    console.log("Echo system ready");
-  }, []);
-
-  // Inițializare hartă
+  // Fly to user position when first loaded
   useEffect(() => {
-    if (!mapContainer.current || map.current) return;
+    if (currentUser?.position && mapRef.current && isFollowing) {
+      mapRef.current.flyTo({
+        center: [currentUser.position.lng, currentUser.position.lat],
+        zoom: 16,
+        pitch: 60,
+        bearing: 0,
+        duration: 2000
+      })
+    }
+  }, [currentUser?.position])
 
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: "mapbox://styles/vladstar/cmetspgr7003g01sc2aeub7yg",
-      center: [26.1025, 44.4268],
-      zoom: 14,
-      pitch: 45,
-      bearing: -17,
-      antialias: true,
-      maxZoom: 18,
-      minZoom: 11
-    });
-
-    map.current.on("load", () => {
-      setupMapLayers();
-      prepareEchoSystem();
-
-      // Inițializare useri statici
-      const staticBots = getStaticBots();
-      const currentUserData: User = {
-        user_id: userId.current,
-        color: ARTISTIC_CONFIG.colors.self.primary,
-        position: { lat: 44.427, lng: 26.107 }
-      };
-
-      // Adaugă user curent
-      upsertMarker(currentUserData);
-      users.current.set(userId.current, currentUserData);
-      syncUserToSupabase(currentUserData, channel.current);
-
-      // Adaugă boti
-      Object.values(staticBots).forEach((bot) => {
-        upsertMarker(bot);
-        users.current.set(bot.user_id, bot);
-        syncUserToSupabase(bot, channel.current);
-      });
-
-      updateConnections();
-      setupRealtime();
-
-      // Geolocation
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const updatedUser: User = {
-              user_id: userId.current,
-              color: ARTISTIC_CONFIG.colors.self.primary,
-              position: {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude
-              }
-            };
-            
-            upsertMarker(updatedUser);
-            updateConnections();
-            
-            if (channel.current) {
-              syncUserToSupabase(updatedUser, channel.current);
-            }
-            
-            map.current?.flyTo({
-              center: [pos.coords.longitude, pos.coords.latitude],
-              zoom: 15,
-              duration: 2000
-            });
-          },
-          (err) => {
-            console.warn("Location error:", err);
-          },
-          { 
-            enableHighAccuracy: false,
-            timeout: 5000,
-            maximumAge: 60000
-          }
-        );
-      }
-    });
-
-    // Cleanup
-    return () => {
-      if (channel.current) {
-        channel.current.unsubscribe();
-        channel.current = null;
-      }
-      markers.current.forEach((marker) => marker.remove());
-      markers.current.clear();
-      users.current.clear();
+  // Return to my position
+  const returnToMyPosition = () => {
+    if (currentUser?.position && mapRef.current) {
+      setIsFollowing(true)
+      setShowReturnButton(false)
       
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
+      mapRef.current.flyTo({
+        center: [currentUser.position.lng, currentUser.position.lat],
+        zoom: 16,
+        pitch: 60,
+        bearing: 0,
+        duration: 1500,
+        essential: true
+      })
+    }
+  }
+
+  // Handle manual map movement
+  const handleMapMove = (evt: any) => {
+    setViewport(evt.viewState)
+    
+    // Detectează dacă user-ul a mișcat manual harta
+    if (currentUser?.position) {
+      const mapCenter = evt.viewState
+      const userLng = currentUser.position.lng
+      const userLat = currentUser.position.lat
+      
+      const distance = Math.sqrt(
+        Math.pow(mapCenter.longitude - userLng, 2) + 
+        Math.pow(mapCenter.latitude - userLat, 2)
+      )
+      
+      // Dacă harta e la mai mult de 0.001 grade de user, arată butonul
+      if (distance > 0.001) {
+        setIsFollowing(false)
+        setShowReturnButton(true)
       }
-    };
-  }, []);
+    }
+  }
 
   return (
-    <div 
-      ref={mapContainer} 
-      className="w-full h-screen bg-black"
-      style={{
-        background: "radial-gradient(circle at center, #0a0a0a 0%, #000000 100%)"
-      }}
-    />
-  );
-};
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 1.5 }}
+      className="absolute inset-0"
+    >
+      <Map
+        ref={mapRef}
+        {...viewport}
+        onMove={handleMapMove}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        style={{ width: '100%', height: '100%' }}
+        mapStyle={MAPBOX_STYLE}
+        pitchWithRotate={true}
+        dragRotate={true}
+        touchZoomRotate={true}
+        touchPitch={true}
+        attributionControl={false}
+        maxZoom={20}
+        minZoom={10}
+      >
+        {/* Constellation Lines - Render first so they appear behind markers */}
+        <ConstellationLines />
 
-export default MapContainer;
+        {/* Current User Marker */}
+        {currentUser?.position && (
+          <UserMarker
+            user={currentUser}
+            isCurrentUser={true}
+          />
+        )}
+
+        {/* Other Users */}
+        {otherUsers.map(user => (
+          user.position && (
+            <UserMarker
+              key={user.id}
+              user={user}
+              isCurrentUser={false}
+            />
+          )
+        ))}
+
+        {/* Echo Markers */}
+        {markers.map(echo => (
+          <EchoMarker key={echo.id} echo={echo} />
+        ))}
+      </Map>
+
+      {/* Return to Position Button */}
+      <AnimatePresence>
+        {showReturnButton && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            transition={{ 
+              type: "spring",
+              damping: 15,
+              stiffness: 300
+            }}
+            onClick={returnToMyPosition}
+            className="absolute bottom-32 right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, #667eea 0%, #764ba2 100%)`,
+              boxShadow: `
+                0 10px 30px rgba(102, 126, 234, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3)
+              `
+            }}
+            whileHover={{ 
+              scale: 1.1,
+              boxShadow: `
+                0 15px 40px rgba(102, 126, 234, 0.7),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4)
+              `
+            }}
+            whileTap={{ scale: 0.95 }}
+          >
+            {/* Icon with glow */}
+            <motion.div
+              animate={{ 
+                rotate: [0, 360],
+              }}
+              transition={{ 
+                duration: 20,
+                repeat: Infinity,
+                ease: "linear"
+              }}
+              className="relative"
+            >
+              <Navigation2 
+                size={24} 
+                className="text-white"
+                style={{
+                  filter: 'drop-shadow(0 0 10px rgba(255, 255, 255, 0.7))'
+                }}
+              />
+            </motion.div>
+
+            {/* Pulse effect */}
+            <motion.div
+              className="absolute inset-0 rounded-full border-2 border-white/30"
+              animate={{
+                scale: [1, 1.5],
+                opacity: [0.5, 0]
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeOut"
+              }}
+            />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* Zoom Controls */}
+      <div className="absolute top-1/2 -translate-y-1/2 right-4 z-40 flex flex-col gap-2">
+        {/* Zoom In */}
+        <motion.button
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.5 }}
+          onClick={() => {
+            if (mapRef.current) {
+              const currentZoom = mapRef.current.getZoom()
+              mapRef.current.zoomTo(Math.min(currentZoom + 1, 20), {
+                duration: 300
+              })
+            }
+          }}
+          className="w-12 h-12 rounded-full backdrop-blur-xl border border-white/20 text-white/80 text-xl font-light flex items-center justify-center"
+          style={{
+            background: `linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`
+          }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          +
+        </motion.button>
+
+        {/* Zoom Out */}
+        <motion.button
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.6 }}
+          onClick={() => {
+            if (mapRef.current) {
+              const currentZoom = mapRef.current.getZoom()
+              mapRef.current.zoomTo(Math.max(currentZoom - 1, 10), {
+                duration: 300
+              })
+            }
+          }}
+          className="w-12 h-12 rounded-full backdrop-blur-xl border border-white/20 text-white/80 text-xl font-light flex items-center justify-center"
+          style={{
+            background: `linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`
+          }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          −
+        </motion.button>
+      </div>
+
+      {/* Overlay gradient for noir effect */}
+      <div 
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: `
+            radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.1) 70%),
+            linear-gradient(180deg, rgba(0,0,0,0.1) 0%, transparent 20%, transparent 80%, rgba(0,0,0,0.2) 100%)
+          `
+        }}
+      />
+    </motion.div>
+  )
+}
