@@ -5,7 +5,6 @@ import { Navigation, Navigation2 } from 'lucide-react'
 import { useMapStore } from '../../store/mapStore'
 import { useUserStore } from '../../store/userStore'
 import UserMarker from './UserMarker'
-import ConstellationLines from './ConstellationLines'
 import EchoMarker from '../Echo/EchoMarker'
 import { MAPBOX_TOKEN, MAPBOX_STYLE } from '../../utils/constants'
 
