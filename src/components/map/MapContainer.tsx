@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import { supabase } from "../../services/supabase";
 import { getStaticBots, User, syncUserToSupabase } from "../../utils/botSystem";
