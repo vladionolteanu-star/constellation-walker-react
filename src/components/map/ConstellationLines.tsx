@@ -1,180 +1,261 @@
-import { useMemo } from 'react'
-import { Source, Layer } from 'react-map-gl'
-import { useUserStore } from '../../store/userStore'
-import { calculateDistance } from '../../utils/constants'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import Map, { Marker, Source, Layer, MapRef } from 'react-map-gl'
+import Supercluster from 'supercluster'
+import { useUserStore } from '../store/userStore'
+import { useMapStore } from '../store/mapStore'
+import 'mapbox-gl/dist/mapbox-gl.css'
 
-export default function ConstellationLines() {
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ''
+
+interface ClusterProperties {
+  cluster: boolean
+  cluster_id: number
+  point_count: number
+  point_count_abbreviated: string
+}
+
+interface PointProperties {
+  cluster: boolean
+  userId: string
+  color: string
+}
+
+type PointFeature = GeoJSON.Feature<GeoJSON.Point, PointProperties>
+type ClusterFeature = GeoJSON.Feature<GeoJSON.Point, ClusterProperties>
+
+const ConstellationMap: React.FC = () => {
+  const mapRef = useRef<MapRef>(null)
   const { currentUser, otherUsers } = useUserStore()
+  const { viewport, setViewport } = useMapStore()
+  const [clusters, setClusters] = useState<(PointFeature | ClusterFeature)[]>([])
 
-  const constellationData = useMemo(() => {
-    if (!currentUser?.position) {
-      return {
-        type: 'FeatureCollection',
-        features: []
-      }
+  // Initialize Supercluster
+  const supercluster = useMemo(() => {
+    return new Supercluster<PointProperties, ClusterProperties>({
+      radius: 75,
+      maxZoom: 20,
+      minPoints: 2,
+    })
+  }, [])
+
+  // Convert users to GeoJSON points
+  const points = useMemo(() => {
+    const allUsers = [...otherUsers]
+    if (currentUser?.position) {
+      allUsers.push(currentUser)
     }
 
-    const features: any[] = []
-    const myPosition = currentUser.position
-
-    // Connect to all users with position
-    const connectedUsers = otherUsers.filter(user => user.position)
-
-    // Create light ray connections to all users
-    connectedUsers.forEach((user, index) => {
-      features.push({
-        type: 'Feature',
+    return allUsers
+      .filter(user => user.position)
+      .map(user => ({
+        type: 'Feature' as const,
         properties: {
-          distance: calculateDistance(
-            myPosition.lat,
-            myPosition.lng,
-            user.position!.lat,
-            user.position!.lng
-          ),
-          index: index,
+          cluster: false,
+          userId: user.id,
           color: user.color,
-          primary: true
         },
         geometry: {
-          type: 'LineString',
-          coordinates: [
-            [myPosition.lng, myPosition.lat],
-            [user.position!.lng, user.position!.lat]
-          ]
-        }
-      })
-    })
-
-    // Create interconnections between all users
-    for (let i = 0; i < connectedUsers.length; i++) {
-      for (let j = i + 1; j < connectedUsers.length; j++) {
-        const user1 = connectedUsers[i]
-        const user2 = connectedUsers[j]
-        
-        features.push({
-          type: 'Feature',
-          properties: {
-            distance: calculateDistance(
-              user1.position!.lat,
-              user1.position!.lng,
-              user2.position!.lat,
-              user2.position!.lng
-            ),
-            secondary: true,
-            color1: user1.color,
-            color2: user2.color
-          },
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [user1.position!.lng, user1.position!.lat],
-              [user2.position!.lng, user2.position!.lat]
-            ]
-          }
-        })
-      }
-    }
-
-    return {
-      type: 'FeatureCollection',
-      features
-    }
+          type: 'Point' as const,
+          coordinates: [user.position!.lng, user.position!.lat],
+        },
+      }))
   }, [currentUser, otherUsers])
 
-  if (!currentUser?.position || otherUsers.length === 0) {
-    return null
-  }
+  // Update clusters when viewport or points change
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    const map = mapRef.current.getMap()
+    const bounds = map.getBounds()
+    
+    if (!bounds) return
+
+    const bbox: [number, number, number, number] = [
+      bounds.getWest(),
+      bounds.getSouth(),
+      bounds.getEast(),
+      bounds.getNorth(),
+    ]
+
+    supercluster.load(points)
+    const zoom = Math.floor(viewport.zoom)
+    const clusteredFeatures = supercluster.getClusters(bbox, zoom)
+    
+    setClusters(clusteredFeatures)
+  }, [viewport, points, supercluster])
+
+  // Handle cluster click
+  const handleClusterClick = useCallback((clusterId: number, lat: number, lng: number) => {
+    const zoom = supercluster.getClusterExpansionZoom(clusterId)
+    
+    if (mapRef.current) {
+      mapRef.current.flyTo({
+        center: [lng, lat],
+        zoom: Math.min(zoom, 20),
+        duration: 500,
+      })
+    }
+  }, [supercluster])
+
+  // Memoized cluster layer style
+  const clusterLayerStyle = useMemo(() => ({
+    id: 'clusters',
+    type: 'circle' as const,
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': [
+        'step',
+        ['get', 'point_count'],
+        '#51bbd6',
+        10,
+        '#f1f075',
+        30,
+        '#f28cb1',
+      ],
+      'circle-radius': [
+        'step',
+        ['get', 'point_count'],
+        20,
+        10,
+        30,
+        30,
+        40,
+      ],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#fff',
+      'circle-stroke-opacity': 0.8,
+    },
+  }), [])
+
+  // Memoized cluster count layer style
+  const clusterCountLayerStyle = useMemo(() => ({
+    id: 'cluster-count',
+    type: 'symbol' as const,
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': '{point_count_abbreviated}',
+      'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 12,
+    },
+    paint: {
+      'text-color': '#ffffff',
+    },
+  }), [])
 
   return (
-    <Source
-      id="constellation-lines"
-      type="geojson"
-      data={constellationData}
+    <Map
+      ref={mapRef}
+      {...viewport}
+      onMove={evt => setViewport(evt.viewState)}
+      mapboxAccessToken={MAPBOX_TOKEN}
+      style={{ width: '100%', height: '100vh' }}
+      mapStyle="mapbox://styles/mapbox/dark-v11"
+      maxZoom={20}
+      minZoom={2}
+      reuseMaps
+      optimizeForTerrain
+      antialias={false}
     >
-      {/* Enhanced light ray effect for primary connections */}
-      <Layer
-        id="constellation-primary"
-        type="line"
-        filter={['==', ['get', 'primary'], true]}
-        paint={{
-          'line-color': [
-            'interpolate',
-            ['linear'],
-            ['line-progress'],
-            0, '#FFFFFF',
-            0.5, ['get', 'color'],
-            1, '#FFFFFF'
-          ],
-          'line-width': [
-            'interpolate',
-            ['exponential', 2],
-            ['zoom'],
-            12, 3,
-            16, 6,
-            20, 12
-          ],
-          'line-opacity': 0.8,
-          'line-blur': 3
+      {/* Clustered points as a Source/Layer for better performance */}
+      <Source
+        id="users"
+        type="geojson"
+        data={{
+          type: 'FeatureCollection',
+          features: clusters,
         }}
-        layout={{
-          'line-cap': 'round',
-          'line-join': 'round'
-        }}
-      />
+        cluster={false}
+      >
+        <Layer {...clusterLayerStyle} />
+        <Layer {...clusterCountLayerStyle} />
+      </Source>
 
-      {/* Outer glow effect for primary connections */}
-      <Layer
-        id="constellation-primary-glow"
-        type="line"
-        filter={['==', ['get', 'primary'], true]}
-        paint={{
-          'line-color': ['get', 'color'],
-          'line-width': [
-            'interpolate',
-            ['exponential', 2],
-            ['zoom'],
-            12, 8,
-            16, 16,
-            20, 24
-          ],
-          'line-opacity': 0.2,
-          'line-blur': 15
-        }}
-        layout={{
-          'line-cap': 'round',
-          'line-join': 'round'
-        }}
-      />
+      {/* Individual markers only for non-clustered points */}
+      {clusters
+        .filter(point => !point.properties.cluster)
+        .map((point) => {
+          const [lng, lat] = point.geometry.coordinates
+          const props = point.properties as PointProperties
+          
+          return (
+            <Marker
+              key={props.userId}
+              longitude={lng}
+              latitude={lat}
+              anchor="center"
+            >
+              <div
+                className="user-marker"
+                style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  backgroundColor: props.color,
+                  border: '2px solid white',
+                  boxShadow: `0 0 10px ${props.color}`,
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.5)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)'
+                }}
+              />
+            </Marker>
+          )
+        })}
 
-      {/* Secondary connections */}
-      <Layer
-        id="constellation-secondary"
-        type="line"
-        filter={['==', ['get', 'secondary'], true]}
-        paint={{
-          'line-color': [
-            'interpolate',
-            ['linear'],
-            ['line-progress'],
-            0, ['get', 'color1'],
-            1, ['get', 'color2']
-          ],
-          'line-width': [
-            'interpolate',
-            ['exponential', 2],
-            ['zoom'],
-            12, 2,
-            16, 4,
-            20, 8
-          ],
-          'line-opacity': 0.4,
-          'line-blur': 2
-        }}
-        layout={{
-          'line-cap': 'round',
-          'line-join': 'round'
-        }}
-      />
-    </Source>
+      {/* Cluster markers */}
+      {clusters
+        .filter(cluster => cluster.properties.cluster)
+        .map((cluster) => {
+          const [lng, lat] = cluster.geometry.coordinates
+          const { cluster_id, point_count } = cluster.properties as ClusterProperties
+          
+          return (
+            <Marker
+              key={`cluster-${cluster_id}`}
+              longitude={lng}
+              latitude={lat}
+              anchor="center"
+            >
+              <div
+                className="cluster-marker"
+                onClick={() => handleClusterClick(cluster_id, lat, lng)}
+                style={{
+                  width: `${30 + (point_count / 10) * 10}px`,
+                  height: `${30 + (point_count / 10) * 10}px`,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(81, 187, 214, 0.6)',
+                  border: '2px solid white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  backdropFilter: 'blur(4px)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'scale(1.1)'
+                  e.currentTarget.style.backgroundColor = 'rgba(81, 187, 214, 0.8)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)'
+                  e.currentTarget.style.backgroundColor = 'rgba(81, 187, 214, 0.6)'
+                }}
+              >
+                {point_count}
+              </div>
+            </Marker>
+          )
+        })}
+    </Map>
   )
 }
+
+export default React.memo(ConstellationMap)
