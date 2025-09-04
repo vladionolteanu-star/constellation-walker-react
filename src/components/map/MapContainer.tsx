@@ -1,21 +1,10 @@
 import { useRef } from 'react'
-import Map, { MapRef } from 'react-map-gl'
+import Map, { MapRef, Marker } from 'react-map-gl'
 import { motion } from 'framer-motion'
-import UserMarker from './UserMarker'
 import { MAPBOX_TOKEN, MAPBOX_STYLE } from '../../utils/constants'
 
 export default function MapContainer() {
   const mapRef = useRef<MapRef>(null)
-
-  // Test user hardcoded
-  const testUser = {
-    id: 'test-user',
-    color: '#00D4FF',
-    position: {
-      lat: 44.4268,
-      lng: 26.1025
-    }
-  }
 
   const viewport = {
     longitude: 26.1025,
@@ -42,18 +31,44 @@ export default function MapContainer() {
         maxZoom={20}
         minZoom={10}
       >
-        {/* Test User Marker */}
-        <UserMarker
-          user={testUser}
-          isCurrentUser={true}
-        />
+        {/* Marker foarte simplu - doar să testăm */}
+        <Marker
+          longitude={26.1025}
+          latitude={44.4268}
+          anchor="center"
+        >
+          <div className="w-8 h-8 bg-red-500 rounded-full border-2 border-white shadow-lg">
+          </div>
+        </Marker>
+
+        {/* Al doilea marker să fii sigur */}
+        <Marker
+          longitude={26.1035}
+          latitude={44.4278}
+          anchor="center"
+        >
+          <div className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-lg">
+          </div>
+        </Marker>
+
+        {/* Al treilea marker cu text */}
+        <Marker
+          longitude={26.1015}
+          latitude={44.4258}
+          anchor="center"
+        >
+          <div className="bg-yellow-400 text-black px-2 py-1 rounded text-sm font-bold">
+            TEST
+          </div>
+        </Marker>
       </Map>
 
       {/* Test info */}
       <div className="fixed bottom-4 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs">
-        <div>Map loaded</div>
-        <div>User: {testUser.id}</div>
-        <div>Position: {testUser.position.lat}, {testUser.position.lng}</div>
+        <div>Map loaded ✅</div>
+        <div>Markers: 3 added</div>
+        <div>Coords: 44.4268, 26.1025</div>
+        <div>Zoom: {viewport.zoom}</div>
       </div>
     </motion.div>
   )
