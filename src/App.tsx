@@ -14,6 +14,7 @@ function App() {
     isLoading, 
     currentUser, 
     error,
+    otherUsers,
     initializeUser, 
     updatePosition,
     setLocationPermission,
@@ -29,6 +30,7 @@ function App() {
   } = useGeolocation()
   
   const watchIdRef = useRef<number | null>(null)
+  const botsCreatedRef = useRef(false) // Prevent duplicate bot creation
 
   // Inițializează user-ul
   useEffect(() => {
@@ -38,6 +40,7 @@ function App() {
   // Actualizează poziția când se schimbă
   useEffect(() => {
     if (position && currentUser) {
+      console.log('📍 Updating position for user:', currentUser.id, position)
       updatePosition(position)
     }
   }, [position, currentUser, updatePosition])
@@ -52,6 +55,55 @@ function App() {
     }
   }, [isPermissionGranted, setLocationPermission, startWatching])
 
+  // Creează boti de test când user-ul are poziție
+  useEffect(() => {
+    if (currentUser?.position && !botsCreatedRef.current) {
+      console.log('🤖 Creating test bots around user position:', currentUser.position)
+      botsCreatedRef.current = true
+
+      const mockUsers = [
+        {
+          id: 'bot-1',
+          color: '#00D4FF',
+          position: {
+            lat: currentUser.position.lat + 0.002, // ~200m north
+            lng: currentUser.position.lng + 0.001  // ~100m east
+          },
+          isOnline: true,
+          lastSeen: new Date()
+        },
+        {
+          id: 'bot-2', 
+          color: '#FF00EA',
+          position: {
+            lat: currentUser.position.lat - 0.001, // ~100m south
+            lng: currentUser.position.lng + 0.002  // ~200m east
+          },
+          isOnline: true,
+          lastSeen: new Date()
+        },
+        {
+          id: 'bot-3',
+          color: '#FFD700',
+          position: {
+            lat: currentUser.position.lat + 0.001, // ~100m north
+            lng: currentUser.position.lng - 0.002  // ~200m west
+          },
+          isOnline: true,
+          lastSeen: new Date()
+        }
+      ]
+
+      // Adaugă botii cu întârziere pentru efectul vizual
+      mockUsers.forEach((bot, index) => {
+        setTimeout(() => {
+          console.log(`🤖 Adding bot ${bot.id} at position:`, bot.position)
+          addOtherUser(bot)
+        }, (index + 1) * 1000) // 1s, 2s, 3s
+      })
+    }
+  }, [currentUser?.position, addOtherUser])
+
   // Cleanup la unmount
   useEffect(() => {
     return () => {
@@ -61,55 +113,12 @@ function App() {
     }
   }, [stopWatching])
 
-  // Mock bots pentru testare (doar în dev)
-  useEffect(() => {
-    if (currentUser?.position && process.env.NODE_ENV === 'development') {
-      const mockUsers = [
-        {
-          id: 'bot-1',
-          color: '#00D4FF',
-          position: {
-            lat: currentUser.position.lat + 0.001,
-            lng: currentUser.position.lng + 0.001
-          },
-          isOnline: true
-        },
-        {
-          id: 'bot-2', 
-          color: '#FF00EA',
-          position: {
-            lat: currentUser.position.lat - 0.001,
-            lng: currentUser.position.lng + 0.0005
-          },
-          isOnline: true
-        },
-        {
-          id: 'bot-3',
-          color: '#FFD700',
-          position: {
-            lat: currentUser.position.lat + 0.0005,
-            lng: currentUser.position.lng - 0.001
-          },
-          isOnline: true
-        }
-      ]
-
-      // Adaugă botii cu întârziere
-      setTimeout(() => {
-        mockUsers.forEach((bot, index) => {
-          setTimeout(() => {
-            addOtherUser(bot)
-          }, index * 500)
-        })
-      }, 1000)
-    }
-  }, [currentUser?.position, addOtherUser])
-
   console.log('🔍 App State:', { 
     isLoading, 
     hasUser: !!currentUser, 
     hasPosition: !!currentUser?.position,
     locationGranted: isPermissionGranted,
+    otherUsersCount: otherUsers.length,
     error: error || locationError
   })
 
@@ -125,11 +134,23 @@ function App() {
           <div>👤 User: {currentUser ? 'Yes' : 'No'}</div>
           <div>📍 Position: {currentUser?.position ? 'Yes' : 'No'}</div>
           <div>🗺️ Location Permission: {isPermissionGranted ? 'Yes' : 'No'}</div>
+          <div>🤖 Other Users: {otherUsers.length}</div>
+          <div>🔗 Bots Created: {botsCreatedRef.current ? 'Yes' : 'No'}</div>
           {currentUser?.position && (
             <>
               <div>📐 Lat: {currentUser.position.lat.toFixed(6)}</div>
               <div>📐 Lng: {currentUser.position.lng.toFixed(6)}</div>
             </>
+          )}
+          {otherUsers.length > 0 && (
+            <div className="mt-2 border-t border-white/20 pt-2">
+              <div className="text-white/60">Connected Users:</div>
+              {otherUsers.map(user => (
+                <div key={user.id} className="text-xs">
+                  • {user.id}: {user.isOnline ? '🟢' : '🔴'}
+                </div>
+              ))}
+            </div>
           )}
           {(error || locationError) && (
             <div className="text-red-400">❌ {error || locationError}</div>
