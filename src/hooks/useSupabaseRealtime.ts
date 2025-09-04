@@ -1,158 +1,223 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
+import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '../services/supabase'
 import { useUserStore } from '../store/userStore'
-import { generateStarColor } from '../utils/constants'
-import toast from 'react-hot-toast'
 
-export function useSupabaseRealtime() {
-  const { currentUser, addOtherUser, removeOtherUser, setOtherUsers } = useUserStore()
-  const channelRef = useRef<any>(null)
-  const hasShownConnectionToast = useRef(false)
-  const updateTimeoutRef = useRef<NodeJS.Timeout>()
+interface RealtimeUser {
+  user_id: string
+  color_hash: string
+  lat: number
+  lng: number
+  updated_at: string
+  is_online: boolean
+}
 
-  const loadInitialUsers = async () => {
-    if (!currentUser) return
+export const useSupabaseRealtime = () => {
+  const channelRef = useRef<RealtimeChannel | null>(null)
+  const heartbeatRef = useRef<NodeJS.Timeout | null>(null)
+  
+  const { 
+    currentUser, 
+    addOtherUser, 
+    removeOtherUser, 
+    clearOtherUsers 
+  } = useUserStore()
+
+  // Broadcast current user position
+  const broadcastPosition = useCallback(async (position: { lat: number; lng: number }) => {
+    if (!currentUser || !channelRef.current) {
+      console.warn('⚠️ Cannot broadcast - no user or channel')
+      return
+    }
+
+    const payload = {
+      user_id: currentUser.id,
+      color_hash: currentUser.color,
+      lat: position.lat,
+      lng: position.lng,
+      updated_at: new Date().toISOString(),
+      is_online: true
+    }
+
+    console.log('📡 Broadcasting position:', payload)
+
     try {
-      // Single query with JOIN - rezolvă N+1 problem
-      const { data, error } = await supabase
+      await channelRef.current.send({
+        type: 'broadcast',
+        event: 'user_position',
+        payload
+      })
+
+      // Also update database for persistence
+      await supabase
         .from('active_positions')
-        .select(`
-          user_id,
-          lat,
-          lng,
-          updated_at,
-          users!inner(color_hash)
-        `)
-        .gt('updated_at', new Date(Date.now() - 30000).toISOString())
-        .neq('user_id', currentUser.id)
+        .upsert({
+          user_id: currentUser.id,
+          lat: position.lat,
+          lng: position.lng,
+          updated_at: new Date().toISOString()
+        })
 
-      if (error) throw error
-      
-      console.log(`📍 Found ${data?.length || 0} active positions`)
-      
-      // Batch update all users at once
-      const otherUsers = data?.map(pos => ({
-        id: pos.user_id,
-        color: pos.users?.color_hash || generateStarColor(),
-        position: { lat: pos.lat, lng: pos.lng },
-      })) || []
-      
-      setOtherUsers(otherUsers)
+      console.log('✅ Position broadcasted and saved')
     } catch (error) {
-      console.error('❌ Failed to load users:', error)
+      console.error('❌ Broadcast failed:', error)
     }
-  }
+  }, [currentUser])
 
-  const startRealtime = () => {
-    if (!currentUser) return
-    console.log('🚀 Starting realtime for user:', currentUser.id)
-
-    loadInitialUsers()
-
-    // Debounced position update
-    const updatePosition = () => {
-      if (currentUser.position) {
-        supabase
-          .from('active_positions')
-          .upsert({
-            user_id: currentUser.id,
-            lat: currentUser.position.lat,
-            lng: currentUser.position.lng,
-            updated_at: new Date().toISOString(),
-          })
-          .then(({ error }) => {
-            if (error) console.error('Error updating position:', error)
-          })
-      }
+  // Start real-time connection
+  const startRealtime = useCallback(() => {
+    if (!currentUser) {
+      console.warn('⚠️ Cannot start realtime - no current user')
+      return
     }
 
-    // Initial position update
-    updatePosition()
+    console.log('🚀 Starting real-time connection for user:', currentUser.id)
 
-    // Set up debounced updates every 2 seconds instead of instant
-    const positionInterval = setInterval(updatePosition, 2000)
+    // Clean up existing channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+    }
 
+    // Create new channel
     channelRef.current = supabase
-      .channel('active_positions')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'active_positions' }, 
-        async (payload) => {
-          const { eventType, new: newData, old: oldData } = payload
-          
-          // Debounce updates - accumulate changes
-          if (updateTimeoutRef.current) {
-            clearTimeout(updateTimeoutRef.current)
+      .channel('constellation-users', {
+        config: {
+          broadcast: { 
+            self: false, // Don't receive our own broadcasts
+            ack: false   // Don't wait for acknowledgment
+          },
+          presence: {
+            key: currentUser.id
           }
-          
-          updateTimeoutRef.current = setTimeout(async () => {
-            if (eventType === 'INSERT' || eventType === 'UPDATE') {
-              if (newData.user_id === currentUser.id) return
-              
-              // Check if we already have user data
-              const existingUser = useUserStore.getState().otherUsers.find(u => u.id === newData.user_id)
-              
-              if (existingUser) {
-                // Just update position, don't fetch user data again
-                addOtherUser({
-                  id: newData.user_id,
-                  color: existingUser.color,
-                  position: { lat: newData.lat, lng: newData.lng },
-                })
-              } else {
-                // New user - fetch their data
-                const { data: userData } = await supabase
-                  .from('users')
-                  .select('color_hash')
-                  .eq('id', newData.user_id)
-                  .single()
-                  
-                addOtherUser({
-                  id: newData.user_id,
-                  color: userData?.color_hash || generateStarColor(),
-                  position: { lat: newData.lat, lng: newData.lng },
-                })
-              }
-            } else if (eventType === 'DELETE') {
-              removeOtherUser(oldData.user_id)
-            }
-          }, 300) // 300ms debounce
         }
-      )
-      .subscribe()
+      })
+      .on('broadcast', { event: 'user_position' }, (payload) => {
+        console.log('📥 Received position update:', payload.payload)
+        
+        const userData = payload.payload as RealtimeUser
+        
+        // Don't add ourselves
+        if (userData.user_id === currentUser.id) {
+          return
+        }
 
-    // Store interval reference for cleanup
-    channelRef.current._positionInterval = positionInterval
+        // Add or update other user
+        addOtherUser({
+          id: userData.user_id,
+          color: userData.color_hash,
+          position: {
+            lat: userData.lat,
+            lng: userData.lng
+          },
+          isOnline: userData.is_online,
+          lastSeen: new Date(userData.updated_at)
+        })
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('👋 User joined:', key, newPresences)
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('👋 User left:', key, leftPresences)
+        if (key !== currentUser.id) {
+          removeOtherUser(key)
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Real-time channel subscribed')
+          
+          // Track presence
+          await channelRef.current?.track({
+            user_id: currentUser.id,
+            color_hash: currentUser.color,
+            online_at: new Date().toISOString()
+          })
 
-    if (!hasShownConnectionToast.current) {
-      setTimeout(() => {
-        toast.success('🔗 Connected to constellation network')
-        hasShownConnectionToast.current = true
-      }, 1000)
-    }
-  }
+          // Load existing users from database
+          try {
+            const { data: existingUsers } = await supabase
+              .from('active_positions')
+              .select('*')
+              .gte('updated_at', new Date(Date.now() - 10 * 60 * 1000).toISOString()) // Last 10 minutes
+              .neq('user_id', currentUser.id)
 
-  const stopRealtime = () => {
-    console.log('Stopping realtime...')
-    
-    // Clear debounce timeout
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current)
-    }
+            console.log('👥 Loaded existing users:', existingUsers?.length || 0)
+
+            if (existingUsers) {
+              existingUsers.forEach((userData) => {
+                addOtherUser({
+                  id: userData.user_id,
+                  color: '#00D4FF', // Default color, should get from users table
+                  position: {
+                    lat: userData.lat,
+                    lng: userData.lng
+                  },
+                  isOnline: true,
+                  lastSeen: new Date(userData.updated_at)
+                })
+              })
+            }
+          } catch (error) {
+            console.error('❌ Failed to load existing users:', error)
+          }
+
+          // Start heartbeat
+          startHeartbeat()
+        } else {
+          console.error('❌ Real-time subscription failed:', status)
+        }
+      })
+  }, [currentUser, addOtherUser, removeOtherUser])
+
+  // Stop real-time connection  
+  const stopRealtime = useCallback(() => {
+    console.log('⏹️ Stopping real-time connection')
     
     if (channelRef.current) {
-      // Clear position interval
-      if (channelRef.current._positionInterval) {
-        clearInterval(channelRef.current._positionInterval)
-      }
-      
       supabase.removeChannel(channelRef.current)
       channelRef.current = null
     }
-  }
 
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+
+    clearOtherUsers()
+  }, [clearOtherUsers])
+
+  // Heartbeat to keep connection alive and broadcast position
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+    }
+
+    heartbeatRef.current = setInterval(() => {
+      if (currentUser?.position) {
+        broadcastPosition(currentUser.position)
+      }
+    }, 5000) // Every 5 seconds
+
+    console.log('💓 Started heartbeat')
+  }, [currentUser, broadcastPosition])
+
+  // Cleanup on unmount
   useEffect(() => {
-    return () => stopRealtime()
-  }, [])
+    return () => {
+      stopRealtime()
+    }
+  }, [stopRealtime])
 
-  return { startRealtime, stopRealtime }
+  // Auto-restart if user changes
+  useEffect(() => {
+    if (currentUser && currentUser.position) {
+      startRealtime()
+    }
+  }, [currentUser?.id])
+
+  return {
+    startRealtime,
+    stopRealtime,
+    broadcastPosition
+  }
 }
