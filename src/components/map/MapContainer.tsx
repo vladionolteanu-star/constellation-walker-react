@@ -1,10 +1,120 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import Map, { MapRef, Marker, Source, Layer } from 'react-map-gl'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Navigation2, Plus, Minus, RotateCcw } from 'lucide-react'
+import { Navigation2, Plus, Minus, RotateCcw, Maximize2 } from 'lucide-react'
 import { useUserStore } from '../../store/userStore'
 import { useMapStore } from '../../store/mapStore'
 import { MAPBOX_TOKEN, MAPBOX_STYLE } from '../../utils/constants'
+
+// Optimized marker component with memoization
+const UserMarkerComponent = React.memo(({ user, isCurrentUser }: { user: any, isCurrentUser: boolean }) => (
+  <motion.div
+    initial={{ scale: 0, opacity: 0 }}
+    animate={{ scale: 1, opacity: 1 }}
+    transition={{ 
+      type: "spring",
+      damping: 15,
+      stiffness: 300,
+      delay: isCurrentUser ? 0.3 : 0.5
+    }}
+    className="relative"
+  >
+    {/* Main marker */}
+    <div
+      className={`${isCurrentUser ? 'w-12 h-12 border-4' : 'w-8 h-8 border-2'} rounded-full border-white shadow-2xl relative z-10`}
+      style={{
+        backgroundColor: user.color,
+        boxShadow: isCurrentUser 
+          ? `0 0 40px ${user.color}80, 0 0 80px ${user.color}40, 0 15px 50px rgba(0,0,0,0.4)`
+          : `0 0 25px ${user.color}70, 0 0 40px ${user.color}30`
+      }}
+    />
+    
+    {/* Pulse rings - reduced for performance but kept visual impact */}
+    {isCurrentUser ? (
+      <>
+        <motion.div
+          className="absolute inset-0 rounded-full border-2"
+          style={{ borderColor: `${user.color}60` }}
+          animate={{ scale: [1, 2.5], opacity: [0.8, 0] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeOut" }}
+        />
+        <motion.div
+          className="absolute inset-0 rounded-full border-2"
+          style={{ borderColor: `${user.color}60` }}
+          animate={{ scale: [1, 2.5], opacity: [0.8, 0] }}
+          transition={{ duration: 3, repeat: Infinity, delay: 1.5, ease: "easeOut" }}
+        />
+      </>
+    ) : (
+      user.isOnline && (
+        <motion.div
+          className="absolute inset-0 rounded-full border"
+          style={{ borderColor: `${user.color}80` }}
+          animate={{ scale: [1, 1.8], opacity: [0.6, 0] }}
+          transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut" }}
+        />
+      )
+    )}
+    
+    {/* Center dot */}
+    <div className={`absolute top-1/2 left-1/2 ${isCurrentUser ? 'w-4 h-4' : 'w-2 h-2'} rounded-full bg-white transform -translate-x-1/2 -translate-y-1/2 z-20`} />
+    
+    {/* Online indicator for other users */}
+    {!isCurrentUser && user.isOnline && (
+      <motion.div
+        className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full border border-white z-20"
+        animate={{ scale: [1, 1.2, 1] }}
+        transition={{ duration: 2, repeat: Infinity }}
+      />
+    )}
+  </motion.div>
+))
+
+// Echo marker component
+const EchoMarkerComponent = React.memo(({ echo, index }: { echo: any, index: number }) => (
+  <motion.div
+    initial={{ scale: 0, opacity: 0, y: 20 }}
+    animate={{ scale: 1, opacity: 1, y: 0 }}
+    transition={{ 
+      type: "spring",
+      damping: 20,
+      stiffness: 200,
+      delay: 1 + index * 0.2
+    }}
+    className="relative"
+  >
+    {/* Echo ring */}
+    <div
+      className="w-16 h-16 rounded-full border-2 border-dashed relative"
+      style={{ 
+        borderColor: echo.color,
+        backgroundColor: `${echo.color}20`
+      }}
+    />
+    
+    {/* Echo pulse - throttled for performance */}
+    <motion.div
+      className="absolute inset-0 rounded-full border"
+      style={{ borderColor: echo.color }}
+      animate={{
+        scale: [1, 1.8],
+        opacity: [echo.intensity || 0.8, 0]
+      }}
+      transition={{
+        duration: 4,
+        repeat: Infinity,
+        ease: "easeOut"
+      }}
+    />
+    
+    {/* Message indicator */}
+    <div
+      className="absolute top-1/2 left-1/2 w-4 h-4 rounded-full transform -translate-x-1/2 -translate-y-1/2 border-2 border-white"
+      style={{ backgroundColor: echo.color }}
+    />
+  </motion.div>
+))
 
 export default function MapContainer() {
   const mapRef = useRef<MapRef>(null)
@@ -12,19 +122,23 @@ export default function MapContainer() {
   const [showControls, setShowControls] = useState(true)
   const [showReturnButton, setShowReturnButton] = useState(false)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   // Store data
   const { currentUser, otherUsers } = useUserStore()
   const { viewport, setViewport, markers } = useMapStore()
 
-  // Constellation lines data
-  const createConstellationLines = useCallback(() => {
-    if (!currentUser?.position) return { type: 'FeatureCollection' as const, features: [] }
+  // Memoized constellation lines with performance optimization
+  const constellationData = useMemo(() => {
+    if (!currentUser?.position || !mapLoaded) {
+      return { type: 'FeatureCollection' as const, features: [] }
+    }
     
-    const allUsers = [currentUser, ...otherUsers].filter(user => user?.position && user.isOnline)
+    const allUsers = [currentUser, ...otherUsers].filter(user => user?.position && user.isOnline !== false)
     const features: any[] = []
     
-    // Create lines between all users
+    // Create lines between all users for full constellation effect
     for (let i = 0; i < allUsers.length; i++) {
       for (let j = i + 1; j < allUsers.length; j++) {
         const user1 = allUsers[i]
@@ -57,45 +171,49 @@ export default function MapContainer() {
       }
     }
     
-    console.log('🌟 Constellation lines created:', features.length)
+    console.log('🌟 Created constellation lines:', features.length)
     return { type: 'FeatureCollection' as const, features }
-  }, [currentUser, otherUsers])
+  }, [currentUser, otherUsers, mapLoaded])
 
-  // Auto-follow user position
+  // Throttled map update for smooth performance
+  const handleMapMove = useCallback((evt: any) => {
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current)
+    }
+    
+    updateTimeoutRef.current = setTimeout(() => {
+      setViewport(evt.viewState)
+      
+      // Check if manually moved away from user
+      if (currentUser?.position && isFollowing) {
+        const distance = Math.sqrt(
+          Math.pow(evt.viewState.longitude - currentUser.position.lng, 2) +
+          Math.pow(evt.viewState.latitude - currentUser.position.lat, 2)
+        )
+        
+        if (distance > 0.002) {
+          setIsFollowing(false)
+          setShowReturnButton(true)
+          console.log('📍 Map moved away from user, showing return button')
+        }
+      }
+    }, 100) // 100ms throttle for smooth performance
+  }, [currentUser, isFollowing, setViewport])
+
+  // Auto-follow user position with smooth transition
   useEffect(() => {
     if (currentUser?.position && mapRef.current && isFollowing && mapLoaded) {
-      console.log('🎯 Flying to user position:', currentUser.position)
+      console.log('🎯 Following user position')
       
-      mapRef.current.flyTo({
+      mapRef.current.easeTo({
         center: [currentUser.position.lng, currentUser.position.lat],
         zoom: Math.max(viewport.zoom, 16),
-        pitch: 45,
+        pitch: 45, // Restored cinematic angle
         bearing: viewport.bearing,
-        duration: 2000,
-        essential: true
+        duration: 1500
       })
     }
   }, [currentUser?.position, isFollowing, mapLoaded])
-
-  // Handle map movement
-  const handleMapMove = useCallback((evt: any) => {
-    setViewport(evt.viewState)
-    
-    // Check if user manually moved the map away from their position
-    if (currentUser?.position && isFollowing) {
-      const distance = Math.sqrt(
-        Math.pow(evt.viewState.longitude - currentUser.position.lng, 2) +
-        Math.pow(evt.viewState.latitude - currentUser.position.lat, 2)
-      )
-      
-      // If map is moved more than ~100m from user, show return button
-      if (distance > 0.001) {
-        setIsFollowing(false)
-        setShowReturnButton(true)
-        console.log('📍 Map moved away from user, showing return button')
-      }
-    }
-  }, [currentUser, isFollowing])
 
   // Return to user position
   const returnToUser = useCallback(() => {
@@ -144,35 +262,66 @@ export default function MapContainer() {
     }
   }
 
-  // Auto-hide controls
-  useEffect(() => {
-    let timeout: NodeJS.Timeout
-    const resetTimeout = () => {
-      clearTimeout(timeout)
-      setShowControls(true)
-      timeout = setTimeout(() => setShowControls(false), 4000)
+  const togglePitch = () => {
+    if (mapRef.current) {
+      const newPitch = viewport.pitch > 30 ? 0 : 60
+      mapRef.current.flyTo({
+        ...viewport,
+        pitch: newPitch,
+        duration: 500
+      })
     }
+  }
 
-    const handleActivity = () => resetTimeout()
+  // Optimized auto-hide controls
+  const resetControlsTimeout = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current)
+    }
+    setShowControls(true)
+    controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 4000)
+  }, [])
+
+  useEffect(() => {
+    const handleActivity = () => resetControlsTimeout()
     
-    resetTimeout()
-    window.addEventListener('mousemove', handleActivity)
-    window.addEventListener('touchstart', handleActivity)
+    resetControlsTimeout()
+    window.addEventListener('mousemove', handleActivity, { passive: true })
+    window.addEventListener('touchstart', handleActivity, { passive: true })
     
     return () => {
-      clearTimeout(timeout)
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+      if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current)
       window.removeEventListener('mousemove', handleActivity)
       window.removeEventListener('touchstart', handleActivity)
     }
-  }, [])
+  }, [resetControlsTimeout])
 
   if (!currentUser?.position) {
     return (
       <div className="absolute inset-0 bg-black flex items-center justify-center">
-        <div className="text-white text-center">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
-          <p>Waiting for location...</p>
-          <p className="text-white/60 text-sm mt-2">Please allow location access</p>
+        <div className="text-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full mx-auto mb-4"
+          />
+          <motion.h2
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="text-white text-xl font-light mb-2"
+          >
+            Constellation Walker
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="text-white/60 text-sm"
+          >
+            Connecting to the constellation...
+          </motion.p>
         </div>
       </div>
     )
@@ -182,7 +331,7 @@ export default function MapContainer() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 1.5, ease: "easeOut" }}
+      transition={{ duration: 2, ease: "easeOut" }}
       className="absolute inset-0 overflow-hidden"
     >
       <Map
@@ -208,11 +357,16 @@ export default function MapContainer() {
         maxZoom={20}
         minZoom={8}
         antialias={true}
-        optimizeForTerrain={true}
+        optimizeForTerrain={false} // Performance optimization
+        fog={{
+          range: [1, 20],
+          color: 'rgba(0, 0, 0, 0.1)',
+          'horizon-blend': 0.1
+        }}
       >
-        {/* Constellation Lines */}
-        {mapLoaded && otherUsers.length > 0 && (
-          <Source id="constellation-lines" type="geojson" data={createConstellationLines()}>
+        {/* Constellation Lines - Full effect with glow + core */}
+        {mapLoaded && constellationData.features.length > 0 && (
+          <Source id="constellation-lines" type="geojson" data={constellationData}>
             {/* Glow effect */}
             <Layer
               id="constellation-glow"
@@ -226,7 +380,14 @@ export default function MapContainer() {
                   'case',
                   ['get', 'isCurrentUserConnection'],
                   '#00FF88',
-                  '#00D4FF'
+                  [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    10, '#00e0ff',
+                    15, '#00e0ff',
+                    20, '#ff00ff'
+                  ]
                 ],
                 'line-width': [
                   'interpolate',
@@ -268,7 +429,14 @@ export default function MapContainer() {
                   'case',
                   ['get', 'isCurrentUserConnection'],
                   '#00FF88',
-                  '#00D4FF'
+                  [
+                    'interpolate',
+                    ['linear'],
+                    ['zoom'],
+                    10, '#00e0ff',
+                    15, '#00e0ff', 
+                    20, '#ff00ff'
+                  ]
                 ],
                 'line-width': [
                   'interpolate',
@@ -297,56 +465,11 @@ export default function MapContainer() {
           latitude={currentUser.position.lat}
           anchor="center"
         >
-          <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ 
-              type: "spring",
-              damping: 15,
-              stiffness: 400,
-              delay: 0.3
-            }}
-            className="relative"
-          >
-            {/* Main marker */}
-            <div
-              className="w-12 h-12 rounded-full border-4 border-white shadow-2xl relative z-10"
-              style={{
-                backgroundColor: currentUser.color,
-                boxShadow: `
-                  0 0 40px ${currentUser.color}80,
-                  0 0 80px ${currentUser.color}40,
-                  0 15px 50px rgba(0,0,0,0.4)
-                `
-              }}
-            />
-            
-            {/* Pulse rings */}
-            {Array.from({ length: 2 }).map((_, i) => (
-              <motion.div
-                key={i}
-                className="absolute inset-0 rounded-full border-2"
-                style={{ borderColor: `${currentUser.color}60` }}
-                animate={{
-                  scale: [1, 2.5],
-                  opacity: [0.8, 0]
-                }}
-                transition={{
-                  duration: 3,
-                  repeat: Infinity,
-                  delay: i * 1.5,
-                  ease: "easeOut"
-                }}
-              />
-            ))}
-            
-            {/* Center dot */}
-            <div className="absolute top-1/2 left-1/2 w-4 h-4 rounded-full bg-white transform -translate-x-1/2 -translate-y-1/2 z-20" />
-          </motion.div>
+          <UserMarkerComponent user={currentUser} isCurrentUser={true} />
         </Marker>
 
         {/* Other Users */}
-        {otherUsers.map((user, index) => (
+        {otherUsers.map((user) => (
           user.position && (
             <Marker
               key={user.id}
@@ -354,49 +477,7 @@ export default function MapContainer() {
               latitude={user.position.lat}
               anchor="center"
             >
-              <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ 
-                  type: "spring",
-                  damping: 15,
-                  stiffness: 300,
-                  delay: 0.5 + index * 0.1
-                }}
-                className="relative"
-              >
-                {/* Main marker */}
-                <div
-                  className="w-8 h-8 rounded-full border-2 border-white shadow-lg relative z-10"
-                  style={{
-                    backgroundColor: user.color,
-                    opacity: user.isOnline ? 1 : 0.5,
-                    boxShadow: user.isOnline 
-                      ? `0 0 25px ${user.color}70, 0 0 50px ${user.color}30`
-                      : 'none'
-                  }}
-                />
-                
-                {/* Online pulse */}
-                {user.isOnline && (
-                  <motion.div
-                    className="absolute inset-0 rounded-full border"
-                    style={{ borderColor: `${user.color}80` }}
-                    animate={{
-                      scale: [1, 1.8],
-                      opacity: [0.6, 0]
-                    }}
-                    transition={{
-                      duration: 2.5,
-                      repeat: Infinity,
-                      ease: "easeOut"
-                    }}
-                  />
-                )}
-                
-                {/* Center dot */}
-                <div className="absolute top-1/2 left-1/2 w-2 h-2 rounded-full bg-white transform -translate-x-1/2 -translate-y-1/2 z-20" />
-              </motion.div>
+              <UserMarkerComponent user={user} isCurrentUser={false} />
             </Marker>
           )
         ))}
@@ -409,47 +490,7 @@ export default function MapContainer() {
             latitude={echo.position.lat}
             anchor="center"
           >
-            <motion.div
-              initial={{ scale: 0, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              transition={{ 
-                type: "spring",
-                damping: 20,
-                stiffness: 200,
-                delay: 1 + index * 0.2
-              }}
-              className="relative"
-            >
-              {/* Echo ring */}
-              <div
-                className="w-12 h-12 rounded-full border-2 border-dashed relative"
-                style={{ 
-                  borderColor: echo.color,
-                  backgroundColor: `${echo.color}15`
-                }}
-              />
-              
-              {/* Echo pulse */}
-              <motion.div
-                className="absolute inset-0 rounded-full border"
-                style={{ borderColor: echo.color }}
-                animate={{
-                  scale: [1, 2],
-                  opacity: [0.8, 0]
-                }}
-                transition={{
-                  duration: 4,
-                  repeat: Infinity,
-                  ease: "easeOut"
-                }}
-              />
-              
-              {/* Message indicator */}
-              <div
-                className="absolute top-1/2 left-1/2 w-3 h-3 rounded-full transform -translate-x-1/2 -translate-y-1/2 border border-white"
-                style={{ backgroundColor: echo.color }}
-              />
-            </motion.div>
+            <EchoMarkerComponent echo={echo} index={index} />
           </Marker>
         ))}
       </Map>
@@ -502,7 +543,7 @@ export default function MapContainer() {
         )}
       </AnimatePresence>
 
-      {/* Map Controls */}
+      {/* Map Controls - Restored with optimizations */}
       <AnimatePresence>
         {showControls && (
           <motion.div 
@@ -559,14 +600,30 @@ export default function MapContainer() {
             >
               <RotateCcw size={16} />
             </motion.button>
+
+            {/* Toggle Pitch */}
+            <motion.button
+              onClick={togglePitch}
+              className="w-12 h-12 rounded-full backdrop-blur-2xl border border-white/20 text-white/90 flex items-center justify-center shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05))'
+              }}
+              whileHover={{ 
+                scale: 1.1,
+                backgroundColor: 'rgba(255,255,255,0.2)'
+              }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Maximize2 size={16} />
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Atmospheric Effects */}
+      {/* Atmospheric Effects - Optimized particle count */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Connection energy particles */}
-        {otherUsers.length > 0 && Array.from({ length: 15 }).map((_, i) => (
+        {/* Connection energy particles - reduced count for performance */}
+        {otherUsers.length > 0 && Array.from({ length: 12 }).map((_, i) => (
           <motion.div
             key={i}
             className="absolute rounded-full"
@@ -593,20 +650,20 @@ export default function MapContainer() {
           />
         ))}
 
-        {/* Gradient overlays for depth */}
+        {/* Gradient overlays for atmospheric depth */}
         <div 
           className="absolute inset-0"
           style={{
             background: `
-              radial-gradient(circle at 20% 30%, ${currentUser.color}05 0%, transparent 50%),
-              radial-gradient(circle at 80% 70%, rgba(0, 212, 255, 0.03) 0%, transparent 50%),
+              radial-gradient(circle at 30% 20%, ${currentUser.color}05 0%, transparent 50%),
+              radial-gradient(circle at 70% 80%, rgba(0, 212, 255, 0.03) 0%, transparent 50%),
               radial-gradient(circle at 50% 50%, transparent 30%, rgba(0,0,0,0.1) 80%)
             `
           }}
         />
       </div>
 
-      {/* Status Info */}
+      {/* Status Info - Enhanced */}
       <div className="fixed bottom-6 left-6 z-50 bg-black/60 backdrop-blur-2xl text-white p-4 rounded-xl border border-white/10 text-sm space-y-2 shadow-2xl">
         <div className="flex items-center gap-2">
           <div 
@@ -616,12 +673,14 @@ export default function MapContainer() {
           <span>You</span>
         </div>
         
-        <div className="text-white/70">
-          <div>Connected Users: {otherUsers.filter(u => u.isOnline).length}</div>
+        <div className="text-white/70 space-y-1">
+          <div>Connected Users: {otherUsers.filter(u => u.isOnline !== false).length}</div>
           <div>Echoes: {markers.length}</div>
           <div>Zoom: {Math.round(viewport.zoom * 10) / 10}x</div>
+          <div>Pitch: {Math.round(viewport.pitch)}°</div>
+          <div>Following: {isFollowing ? 'Yes' : 'No'}</div>
           {currentUser.position && (
-            <div className="text-xs mt-1 font-mono">
+            <div className="text-xs mt-1 font-mono text-white/50">
               {currentUser.position.lat.toFixed(6)}, {currentUser.position.lng.toFixed(6)}
             </div>
           )}
