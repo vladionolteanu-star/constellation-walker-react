@@ -1,140 +1,155 @@
-import { useEffect, useCallback, useRef } from 'react'
-import { useUserStore } from '../store/userStore'
-import { supabase } from '../services/supabase'
-import toast from 'react-hot-toast'
+import { useState, useEffect, useCallback } from 'react'
 
-export function useGeolocation() {
-  const { updatePosition, currentUser } = useUserStore()
-  const watchIdRef = useRef<number | null>(null)
-  const lastUpdateRef = useRef<number>(0)
-  const hasShownLocationToast = useRef(false)
+interface Position {
+  lat: number
+  lng: number
+}
 
-  const requestPermission = useCallback(async () => {
+interface GeolocationState {
+  position: Position | null
+  error: string | null
+  isLoading: boolean
+  isPermissionGranted: boolean
+}
+
+export const useGeolocation = () => {
+  const [state, setState] = useState<GeolocationState>({
+    position: null,
+    error: null,
+    isLoading: false,
+    isPermissionGranted: false
+  })
+
+  const updatePosition = useCallback((position: GeolocationPosition) => {
+    const newPos = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude
+    }
+    
+    console.log('📍 Location updated:', newPos)
+    
+    setState(prev => ({
+      ...prev,
+      position: newPos,
+      isLoading: false,
+      error: null,
+      isPermissionGranted: true
+    }))
+  }, [])
+
+  const handleError = useCallback((error: GeolocationPositionError) => {
+    console.error('❌ Geolocation error:', error.message)
+    
+    let errorMessage = 'Unknown location error'
+    switch (error.code) {
+      case error.PERMISSION_DENIED:
+        errorMessage = 'Location access denied by user'
+        break
+      case error.POSITION_UNAVAILABLE:
+        errorMessage = 'Location information unavailable'
+        break
+      case error.TIMEOUT:
+        errorMessage = 'Location request timed out'
+        break
+    }
+    
+    setState(prev => ({
+      ...prev,
+      error: errorMessage,
+      isLoading: false,
+      isPermissionGranted: false
+    }))
+  }, [])
+
+  const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!navigator.geolocation) {
-      toast.error('Geolocation not supported by this browser')
+      setState(prev => ({
+        ...prev,
+        error: 'Geolocation not supported by this browser',
+        isPermissionGranted: false
+      }))
       return false
     }
 
+    setState(prev => ({ ...prev, isLoading: true, error: null }))
+
     try {
+      // Request permission first
       const permission = await navigator.permissions.query({ name: 'geolocation' })
       
       if (permission.state === 'denied') {
-        toast.error('Location permission denied. Please enable in browser settings.')
+        setState(prev => ({
+          ...prev,
+          error: 'Location permission denied',
+          isLoading: false,
+          isPermissionGranted: false
+        }))
         return false
       }
 
-      return new Promise<boolean>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            const { latitude, longitude } = position.coords
-            console.log('📍 Got GPS position:', latitude, longitude)
-            
-            await updatePosition({ lat: latitude, lng: longitude })
-            
-            if (currentUser) {
-              const { error } = await supabase.from('active_positions').upsert({
-                user_id: currentUser.id,
-                lat: latitude,
-                lng: longitude,
-                updated_at: new Date().toISOString()
-              })
-              
-              if (!error) {
-                console.log('✅ Initial position saved to DB')
-              } else {
-                console.error('❌ Failed to save position:', error)
-              }
-            }
-            
-            if (!hasShownLocationToast.current) {
-              toast.success('📍 Location found - you are now visible')
-              hasShownLocationToast.current = true
-            }
-            
-            resolve(true)
-          },
-          (error) => {
-            console.error('Geolocation error:', error)
-            toast.error('Failed to get location')
-            resolve(false)
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-          }
-        )
-      })
+      // Get current position
+      navigator.geolocation.getCurrentPosition(
+        updatePosition,
+        handleError,
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 60000
+        }
+      )
+
+      return true
     } catch (error) {
-      console.error('Permission error:', error)
-      toast.error('Failed to request location permission')
+      handleError({
+        code: 3,
+        message: 'Permission request failed',
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3
+      } as GeolocationPositionError)
       return false
     }
-  }, [updatePosition, currentUser])
+  }, [updatePosition, handleError])
 
   const startWatching = useCallback(() => {
-    if (!navigator.geolocation || !currentUser) return
-
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
+    if (!navigator.geolocation || !state.isPermissionGranted) {
+      console.warn('⚠️ Cannot start watching - no permission or support')
+      return null
     }
 
-    console.log('👁️ Starting position watch...')
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (position) => {
-        const now = Date.now()
-        
-        if (now - lastUpdateRef.current < 5000) {
-          return
-        }
-        
-        lastUpdateRef.current = now
-        
-        const { latitude, longitude } = position.coords
-        console.log('📍 Position update:', latitude, longitude)
-        
-        updatePosition({ lat: latitude, lng: longitude })
-        
-        if (currentUser) {
-          const { error } = await supabase.from('active_positions').upsert({
-            user_id: currentUser.id,
-            lat: latitude,
-            lng: longitude,
-            updated_at: new Date().toISOString()
-          })
-          if (error) console.error('❌ Failed to update position:', error)
-        }
-      },
-      (error) => {
-        console.error('Watch position error:', error)
-        toast.error('Failed to update location')
-      },
+    console.log('👀 Starting location watch...')
+    
+    const watchId = navigator.geolocation.watchPosition(
+      updatePosition,
+      handleError,
       {
         enableHighAccuracy: true,
-        maximumAge: 10000,
-        timeout: 15000
+        timeout: 10000,
+        maximumAge: 30000
       }
     )
-  }, [updatePosition, currentUser])
 
+    return watchId
+  }, [updatePosition, handleError, state.isPermissionGranted])
+
+  const stopWatching = useCallback((watchId: number | null) => {
+    if (watchId !== null && navigator.geolocation) {
+      console.log('⏹️ Stopping location watch')
+      navigator.geolocation.clearWatch(watchId)
+    }
+  }, [])
+
+  // Auto-request permission on mount
   useEffect(() => {
-    if (currentUser) {
-      requestPermission().then((granted) => {
-        if (granted) startWatching()
-      })
+    if (!state.position && !state.error && !state.isLoading) {
+      requestPermission()
     }
+  }, [requestPermission, state])
 
-    return () => {
-      if (watchIdRef.current) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
-        watchIdRef.current = null
-      }
-    }
-  }, [currentUser, startWatching, requestPermission])
-
-  return { 
+  return {
+    ...state,
     requestPermission,
-    startWatching
+    startWatching,
+    stopWatching
   }
 }
