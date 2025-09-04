@@ -1,68 +1,51 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AnimatePresence } from 'framer-motion'
 import AppLayout from './components/Layout/AppLayout'
 import LoadingScreen from './components/UI/LoadingScreen'
-import { useSupabaseRealtime } from './hooks/useSupabaseRealtime'
-import { useGeolocation } from './hooks/useGeolocation'
-import { botSystem } from './utils/botSystem'
 
 // component pentru debugging / status conexiune Supabase
 import SupabaseStatus from './components/SupabaseStatus'
-// import DebugPanel from './components/UI/DebugPanel'
-// import UserCounter from './components/UI/UserCounter'
 
 function App() {
-  const { isLoading, currentUser, initializeUser } = useUserStore()
-  const { startRealtime, stopRealtime } = useSupabaseRealtime()
-  const { requestPermission } = useGeolocation()
+  const [isLoading, setIsLoading] = useState(true)
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
     const init = async () => {
-      await initializeUser()
+      // Simulează inițializarea user-ului
+      setTimeout(() => {
+        setCurrentUser({
+          id: 'test-user-123',
+          color: '#00D4FF',
+          position: {
+            lat: 44.4268,
+            lng: 26.1025
+          }
+        })
+        setIsLoading(false)
+      }, 1000)
     }
     init()
-  }, [initializeUser])
+  }, [])
 
-  useEffect(() => {
-    if (currentUser && !isLoading) {
-      const setupApp = async () => {
-        const locationGranted = await requestPermission()
-        if (locationGranted) {
-          startRealtime()
-
-          // Activează botii pentru testare doar în dev/local
-          if (
-            window.location.hostname === 'localhost' ||
-            window.location.hostname.includes('vercel')
-          ) {
-            setTimeout(() => {
-              botSystem.createBots(1) // <--- doar 1 bot
-            }, 2000)
-          }
-        }
-      }
-      setupApp()
-    }
-
-    // Cleanup la unmount
-    return () => {
-      stopRealtime()
-      if (
-        window.location.hostname === 'localhost' ||
-        window.location.hostname.includes('vercel')
-      ) {
-        botSystem.cleanup()
-      }
-    }
-  }, [currentUser, isLoading, requestPermission, startRealtime, stopRealtime])
+  console.log('🔍 Debug:', { 
+    isLoading, 
+    currentUser, 
+    hasPosition: currentUser?.position 
+  })
 
   return (
     <div>
       {/* status bar pentru debugging conexiune Supabase */}
       <SupabaseStatus />
-      {/* <DebugPanel /> */}
-      {/* <UserCounter /> */}
+
+      {/* Debug info pe ecran */}
+      <div className="fixed top-16 left-4 z-50 bg-black/80 text-white p-2 rounded text-xs">
+        <div>Loading: {isLoading ? 'Yes' : 'No'}</div>
+        <div>User: {currentUser ? 'Yes' : 'No'}</div>
+        <div>Position: {currentUser?.position ? 'Yes' : 'No'}</div>
+      </div>
 
       <AnimatePresence mode="wait">
         {isLoading || !currentUser ? (
